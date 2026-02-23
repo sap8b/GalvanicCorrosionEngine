@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/BasicCorrosionExample/BasicCorrosionExample.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/GCE.Atmosphere/GCE.Atmosphere.csproj" />
+    <Project Path="src/GCE.Console/GCE.Console.csproj" />
+    <Project Path="src/GCE.Core/GCE.Core.csproj" />
+    <Project Path="src/GCE.Electrochemistry/GCE.Electrochemistry.csproj" />
+    <Project Path="src/GCE.IO/GCE.IO.csproj" />
+    <Project Path="src/GCE.Numerics/GCE.Numerics.csproj" />
+    <Project Path="src/GCE.Simulation/GCE.Simulation.csproj" />
+  </Folder>
+</Solution>
