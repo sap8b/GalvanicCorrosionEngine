@@ -8,9 +8,9 @@ using GCE.Electrochemistry;
 using GCE.IO;
 using GCE.Simulation;
 
-// -- Materials --
-IMaterial zinc = new Material("Zinc", StandardPotential: -0.76, ExchangeCurrentDensity: 1e-3);
-IMaterial steel = new Material("Mild Steel", StandardPotential: -0.44, ExchangeCurrentDensity: 1e-4);
+// -- Materials (retrieved from registry) --
+IMaterial zinc = MaterialRegistry.Zinc;
+IMaterial steel = MaterialRegistry.MildSteel;
 
 // -- Environment (marine atmosphere) --
 var env = new AtmosphericConditions(
