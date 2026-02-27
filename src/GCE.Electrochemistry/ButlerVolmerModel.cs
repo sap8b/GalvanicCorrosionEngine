@@ -34,14 +34,12 @@ public sealed class ButlerVolmerModel : ICorrosionModel
     public double ComputeCorrosionRate(double potential)
     {
         double currentDensity = ComputeCurrentDensity(potential);
-        // Convert A/m² → mm/year using Faraday's law (approximate for iron: M=56, n=2, ρ=7874 kg/m³)
+        // Convert A/m² → mm/year using Faraday's law:
         // corrosion rate (mm/yr) = i (A/m²) × M / (n × F × ρ) × seconds_per_year × 1000
-        const double molarMass = 0.056;     // kg/mol  (approximate iron)
-        const double electrons = 2.0;
-        const double density = 7874.0;      // kg/m³
         const double secondsPerYear = 3.156e7;
 
-        return Math.Abs(currentDensity) * molarMass / (electrons * PhysicalConstants.Faraday * density)
+        return Math.Abs(currentDensity) * _material.MolarMass
+               / (_material.ElectronsTransferred * PhysicalConstants.Faraday * _material.Density)
                * secondsPerYear * 1000.0;
     }
 

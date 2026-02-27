@@ -7,9 +7,9 @@ using GCE.Simulation;
 Console.WriteLine("=== GalvanicCorrosionEngine ===");
 Console.WriteLine();
 
-// Define materials
-IMaterial zinc = new Material("Zinc", StandardPotential: -0.76, ExchangeCurrentDensity: 1e-3);
-IMaterial steel = new Material("Mild Steel", StandardPotential: -0.44, ExchangeCurrentDensity: 1e-4);
+// Retrieve materials from the registry
+IMaterial zinc = MaterialRegistry.Zinc;
+IMaterial steel = MaterialRegistry.MildSteel;
 
 // Define environment (25 °C, 80 % RH, seawater-like chloride)
 var conditions = new AtmosphericConditions(
