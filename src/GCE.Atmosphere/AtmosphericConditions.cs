@@ -11,7 +11,7 @@ namespace GCE.Atmosphere;
 public sealed record AtmosphericConditions(
     double TemperatureCelsius,
     double RelativeHumidity,
-    double ChlorideConcentration = 0.0) : IEnvironment
+    double ChlorideConcentration = 0.0) : IElectrolyte
 {
     private const double AbsoluteZero = 273.15;
 
@@ -27,4 +27,7 @@ public sealed record AtmosphericConditions(
     public double IonicConductivity =>
         // Empirical approximation: conductivity (S/m) driven by RH and chloride
         RelativeHumidity * (0.01 + 0.5 * ChlorideConcentration);
+
+    /// <inheritdoc/>
+    public double Concentration => ChlorideConcentration;
 }

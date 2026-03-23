@@ -6,7 +6,7 @@ A modular .NET library for simulating galvanic corrosion between dissimilar meta
 
 | Project | Description |
 |---------|-------------|
-| `GCE.Core` | Core interfaces (`IMaterial`, `IEnvironment`, `ICorrosionModel`) and domain types |
+| `GCE.Core` | Core interfaces (`IMaterial`, `IElectrode`, `IElectrolyte`, `IGalvanicCell`, `IEnvironment`, `ICorrosionModel`) and domain types |
 | `GCE.Numerics` | Numerical solvers (Runge–Kutta, Brent root-finder) |
 | `GCE.Electrochemistry` | Galvanic pair model and Butler–Volmer kinetics |
 | `GCE.Atmosphere` | Atmospheric condition models (`AtmosphericConditions`) |
