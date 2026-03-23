@@ -25,8 +25,8 @@ GCE.Console
 
 ### GCE.Core
 The innermost layer.  Contains only:
-- **Interfaces** (`IMaterial`, `IEnvironment`, `ICorrosionModel`) that define the domain contracts.
-- **Value types** (`Material` record) for zero-cost domain objects.
+- **Interfaces** (`IMaterial`, `IElectrode`, `IElectrolyte`, `IGalvanicCell`, `IEnvironment`, `ICorrosionModel`) that define the domain contracts.
+- **Value types** (`Material`, `Electrode` records) for zero-cost domain objects.
 - **Physical constants** (`PhysicalConstants`) shared across the solution.
 
 No dependencies on other GCE projects.
@@ -41,13 +41,14 @@ Depends only on `GCE.Core` (for shared constants).
 ### GCE.Electrochemistry
 Electrochemical domain logic:
 - `GalvanicPair` — Encapsulates an anode/cathode pair and enforces thermodynamic ordering.
+- `GalvanicCell` — Implements `IGalvanicCell`; couples two `IElectrode` objects through an `IElectrolyte`.
 - `ButlerVolmerModel` — Implements `ICorrosionModel` using the Butler–Volmer equation.
 
 Depends on `GCE.Core` and `GCE.Numerics`.
 
 ### GCE.Atmosphere
 Atmospheric and electrolytic environment modelling:
-- `AtmosphericConditions` — Implements `IEnvironment` from temperature, relative humidity, and chloride concentration using empirical correlations.
+- `AtmosphericConditions` — Implements `IElectrolyte` (and by extension `IEnvironment`) from temperature, relative humidity, and chloride concentration using empirical correlations.
 
 Depends on `GCE.Core`.
 
@@ -74,5 +75,5 @@ Executable entry point that wires all components together and demonstrates an en
 | **Single Responsibility** | Each project has exactly one cohesive concern. |
 | **Open/Closed** | New material models or solvers can be added without modifying existing code. |
 | **Liskov Substitution** | Any `ICorrosionModel` / `IEnvironment` implementation can be substituted freely. |
-| **Interface Segregation** | `IMaterial`, `IEnvironment`, and `ICorrosionModel` are narrow and client-specific. |
+| **Interface Segregation** | `IMaterial`, `IElectrode`, `IElectrolyte`, `IGalvanicCell`, `IEnvironment`, and `ICorrosionModel` are narrow and client-specific. |
 | **Dependency Inversion** | Outer layers reference abstractions (interfaces) defined in `GCE.Core`. |
