@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/sap8b/GalvanicCorrosionEngine/schemas/simulation-config.schema.json",
+  "title": "SimulationConfig",
+  "description": "Configuration schema for a GalvanicCorrosionEngine simulation.",
+  "type": "object",
+  "properties": {
+    "anode": {
+      "$ref": "#/definitions/material",
+      "description": "The anode (less noble) material in the galvanic pair."
+    },
+    "cathode": {
+      "$ref": "#/definitions/material",
+      "description": "The cathode (more noble) material in the galvanic pair."
+    },
+    "environment": {
+      "$ref": "#/definitions/environment",
+      "description": "Static atmospheric conditions used when no weather provider is configured."
+    },
+    "durationSeconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 3600,
+      "description": "Total simulation duration in seconds."
+    },
+    "timeSteps": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1000,
+      "description": "Number of time integration steps."
+    },
+    "weather": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/definitions/weather" }
+      ],
+      "description": "Optional time-varying weather provider. Omit or set type to 'none' for a static simulation."
+    }
+  },
+  "required": [],
+  "additionalProperties": false,
+  "definitions": {
+    "material": {
+      "type": "object",
+      "description": "A material specification. Supply only 'name' for a registry lookup, or all fields for a custom material.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Material name. Used for registry lookup (e.g. 'Zinc', 'Mild Steel', 'Aluminium', 'Copper', 'Nickel', 'Magnesium') or as the display name for a custom material.",
+          "examples": ["Zinc", "Mild Steel", "Aluminium", "Copper", "Nickel", "Magnesium"]
+        },
+        "standardPotential": {
+          "type": "number",
+          "description": "Standard electrochemical potential in V vs. SHE. Required for custom materials."
+        },
+        "exchangeCurrentDensity": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Exchange current density in A/m². Required for custom materials."
+        },
+        "molarMass": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Molar mass in kg/mol. Required for custom materials."
+        },
+        "electronsTransferred": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Electrons transferred per formula unit in anodic dissolution. Required for custom materials."
+        },
+        "density": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Density in kg/m³. Required for custom materials."
+        }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "description": "Static atmospheric conditions.",
+      "properties": {
+        "temperatureCelsius": {
+          "type": "number",
+          "default": 25.0,
+          "description": "Ambient temperature in °C."
+        },
+        "relativeHumidity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.80,
+          "description": "Relative humidity as a fraction in [0, 1]."
+        },
+        "chlorideConcentration": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.5,
+          "description": "Chloride ion concentration in mol/L."
+        }
+      },
+      "additionalProperties": false
+    },
+    "weather": {
+      "type": "object",
+      "description": "Weather provider configuration.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["none", "synthetic", "csv"],
+          "default": "none",
+          "description": "The weather provider type."
+        },
+        "baseTempCelsius": {
+          "type": "number",
+          "default": 15.0,
+          "description": "Daily-mean temperature in °C. Used when type is 'synthetic'."
+        },
+        "tempAmplitude": {
+          "type": "number",
+          "minimum": 0,
+          "default": 8.0,
+          "description": "Half-range of diurnal temperature swing in °C. Used when type is 'synthetic'."
+        },
+        "baseRelativeHumidity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.70,
+          "description": "Daily-mean relative humidity as a fraction [0, 1]. Used when type is 'synthetic'."
+        },
+        "humidityAmplitude": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.15,
+          "description": "Half-range of diurnal humidity swing. Used when type is 'synthetic'."
+        },
+        "chlorideConcentration": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.05,
+          "description": "Chloride concentration in mol/L. Used when type is 'synthetic'."
+        },
+        "precipitation": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.0,
+          "description": "Constant precipitation rate in mm/h. Used when type is 'synthetic'."
+        },
+        "windSpeed": {
+          "type": "number",
+          "minimum": 0,
+          "default": 2.0,
+          "description": "Constant wind speed in m/s. Used when type is 'synthetic'."
+        },
+        "csvPath": {
+          "type": "string",
+          "description": "Path to the CSV weather data file. Required when type is 'csv'."
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    }
+  }
+}
