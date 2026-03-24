@@ -11,30 +11,66 @@ Console.WriteLine();
 IMaterial zinc = MaterialRegistry.Zinc;
 IMaterial steel = MaterialRegistry.MildSteel;
 
-// Define environment (25 °C, 80 % RH, seawater-like chloride)
-var conditions = new AtmosphericConditions(
+// ── Static-environment simulation ────────────────────────────────────────────
+
+Console.WriteLine("-- Static Environment --");
+
+var staticConditions = new AtmosphericConditions(
     TemperatureCelsius: 25.0,
     RelativeHumidity: 0.80,
     ChlorideConcentration: 0.5);
 
-// Build galvanic pair and simulation parameters
 var pair = new GalvanicPair(anode: zinc, cathode: steel);
-var parameters = new SimulationParameters(pair, conditions, DurationSeconds: 3600, TimeSteps: 360);
+var staticParameters = new SimulationParameters(pair, staticConditions, DurationSeconds: 3600, TimeSteps: 360);
 
-Console.WriteLine($"Galvanic pair : {pair.Anode.Name} (anode) / {pair.Cathode.Name} (cathode)");
+Console.WriteLine($"Galvanic pair  : {pair.Anode.Name} (anode) / {pair.Cathode.Name} (cathode)");
 Console.WriteLine($"Galvanic voltage : {pair.GalvanicVoltage:F3} V");
-Console.WriteLine($"Environment  : T={conditions.TemperatureCelsius}°C, RH={conditions.RelativeHumidity * 100}%, [Cl⁻]={conditions.ChlorideConcentration} mol/L");
+Console.WriteLine($"Environment    : T={staticConditions.TemperatureCelsius}°C, RH={staticConditions.RelativeHumidity * 100}%, [Cl⁻]={staticConditions.ChlorideConcentration} mol/L");
 Console.WriteLine();
 
-// Run simulation
 var engine = new SimulationEngine();
-var result = engine.Run(parameters);
+var staticResult = engine.Run(staticParameters);
 
-Console.WriteLine($"Simulation complete: {result.TimePoints.Count} time steps over {parameters.DurationSeconds} s");
-Console.WriteLine($"Average corrosion rate : {result.AverageCorrosionRate:F4} mm/year");
+Console.WriteLine($"Simulation complete : {staticResult.TimePoints.Count} time steps over {staticParameters.DurationSeconds} s");
+Console.WriteLine($"Average corrosion rate : {staticResult.AverageCorrosionRate:F4} mm/year");
 Console.WriteLine();
 
-// Export results
-string csvPath = Path.Combine(AppContext.BaseDirectory, "corrosion_results.csv");
-new CsvExporter().ExportToFile(result, csvPath);
-Console.WriteLine($"Results exported to : {csvPath}");
+string staticCsvPath = Path.Combine(AppContext.BaseDirectory, "corrosion_results_static.csv");
+new CsvExporter().ExportToFile(staticResult, staticCsvPath);
+Console.WriteLine($"Results exported to : {staticCsvPath}");
+Console.WriteLine();
+
+// ── Weather-driven simulation (synthetic diurnal cycle) ───────────────────────
+
+Console.WriteLine("-- Weather-Driven Environment (Synthetic Diurnal Cycle) --");
+
+var weatherProvider = new SyntheticWeatherProvider(
+    baseTempCelsius: 18.0,
+    tempAmplitude: 10.0,
+    baseRelativeHumidity: 0.72,
+    humidityAmplitude: 0.18,
+    chlorideConcentration: 0.5);
+
+var weatherParameters = new SimulationParameters(
+    pair,
+    staticConditions,         // fallback environment (unused when WeatherProvider is set)
+    DurationSeconds: 86_400,  // simulate one full day
+    TimeSteps: 1440,
+    WeatherProvider: weatherProvider);
+
+Console.WriteLine($"Galvanic pair  : {pair.Anode.Name} (anode) / {pair.Cathode.Name} (cathode)");
+var peakObs = weatherProvider.GetObservation(50_400); // 14:00 solar time — daily peak
+Console.WriteLine($"Weather        : synthetic diurnal — peak {peakObs.TemperatureCelsius:F1}°C, [Cl⁻]={peakObs.ChlorideConcentration} mol/L");
+Console.WriteLine();
+
+var weatherResult = engine.Run(weatherParameters);
+
+Console.WriteLine($"Simulation complete : {weatherResult.TimePoints.Count} time steps over {weatherParameters.DurationSeconds} s");
+Console.WriteLine($"Average corrosion rate : {weatherResult.AverageCorrosionRate:F4} mm/year");
+Console.WriteLine($"Min corrosion rate     : {weatherResult.CorrosionRates.Min():F4} mm/year");
+Console.WriteLine($"Max corrosion rate     : {weatherResult.CorrosionRates.Max():F4} mm/year");
+Console.WriteLine();
+
+string weatherCsvPath = Path.Combine(AppContext.BaseDirectory, "corrosion_results_weather.csv");
+new CsvExporter().ExportToFile(weatherResult, weatherCsvPath);
+Console.WriteLine($"Results exported to : {weatherCsvPath}");
