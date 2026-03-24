@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\GCE.Atmosphere\GCE.Atmosphere.csproj" />
     <ProjectReference Include="..\..\src\GCE.Electrochemistry\GCE.Electrochemistry.csproj" />
     <ProjectReference Include="..\..\src\GCE.Numerics\GCE.Numerics.csproj" />
+    <ProjectReference Include="..\..\src\GCE.Simulation\GCE.Simulation.csproj" />
   </ItemGroup>
 
 </Project>
