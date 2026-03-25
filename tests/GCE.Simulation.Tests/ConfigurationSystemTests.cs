@@ -3,7 +3,7 @@ using GCE.Configuration;
 using GCE.Core;
 using GCE.Simulation;
 
-namespace GCE.Core.Tests;
+namespace GCE.Simulation.Tests;
 
 // ── SimulationConfig defaults ─────────────────────────────────────────────────
 

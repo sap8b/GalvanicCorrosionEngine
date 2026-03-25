@@ -13,7 +13,10 @@
     <Project Path="src/GCE.Simulation/GCE.Simulation.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/GCE.Atmosphere.Tests/GCE.Atmosphere.Tests.csproj" />
     <Project Path="tests/GCE.Core.Tests/GCE.Core.Tests.csproj" />
+    <Project Path="tests/GCE.Electrochemistry.Tests/GCE.Electrochemistry.Tests.csproj" />
     <Project Path="tests/GCE.Numerics.Tests/GCE.Numerics.Tests.csproj" />
+    <Project Path="tests/GCE.Simulation.Tests/GCE.Simulation.Tests.csproj" />
   </Folder>
 </Solution>

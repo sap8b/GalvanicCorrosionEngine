@@ -21,7 +21,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GCE.Core\GCE.Core.csproj" />
     <ProjectReference Include="..\..\src\GCE.Atmosphere\GCE.Atmosphere.csproj" />
+    <ProjectReference Include="..\..\src\GCE.Configuration\GCE.Configuration.csproj" />
     <ProjectReference Include="..\..\src\GCE.Electrochemistry\GCE.Electrochemistry.csproj" />
+    <ProjectReference Include="..\..\src\GCE.Numerics\GCE.Numerics.csproj" />
+    <ProjectReference Include="..\..\src\GCE.Simulation\GCE.Simulation.csproj" />
+    <ProjectReference Include="..\..\src\GCE.IO\GCE.IO.csproj" />
   </ItemGroup>
 
 </Project>

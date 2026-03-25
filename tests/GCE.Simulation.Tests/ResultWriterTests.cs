@@ -3,7 +3,7 @@ using GCE.Core;
 using GCE.IO;
 using GCE.Simulation;
 
-namespace GCE.Core.Tests;
+namespace GCE.Simulation.Tests;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

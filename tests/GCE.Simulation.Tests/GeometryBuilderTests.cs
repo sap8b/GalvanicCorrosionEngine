@@ -2,7 +2,7 @@ using GCE.Atmosphere;
 using GCE.Core;
 using GCE.Simulation.Geometry;
 
-namespace GCE.Core.Tests;
+namespace GCE.Simulation.Tests;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

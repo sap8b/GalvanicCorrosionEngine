@@ -1,7 +1,7 @@
 using GCE.Atmosphere;
 using GCE.Core;
 
-namespace GCE.Core.Tests;
+namespace GCE.Atmosphere.Tests;
 
 // ── IWeatherObservation / WeatherObservation ──────────────────────────────────
 
