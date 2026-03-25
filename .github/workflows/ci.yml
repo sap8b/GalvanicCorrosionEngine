@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build, Test & Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # ── Run all test projects and collect Cobertura coverage XML files ──────────
+      - name: Test with coverage
+        run: |
+          dotnet test --no-build --configuration Release \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults \
+            --settings coverlet.runsettings \
+            --logger "trx;LogFilePrefix=results"
+
+      # ── Merge all per-project XML files into a single HTML + Cobertura report ──
+      - name: Install ReportGenerator
+        run: dotnet tool install -g dotnet-reportgenerator-globaltool
+
+      - name: Generate coverage report
+        run: |
+          reportgenerator \
+            -reports:"./TestResults/**/coverage.cobertura.xml" \
+            -targetdir:"./CoverageReport" \
+            -reporttypes:"MarkdownSummaryGithub;Cobertura;Html" \
+            -assemblyfilters:"+GCE.*" \
+            -title:"GalvanicCorrosionEngine Code Coverage"
+
+      # ── Append the Markdown summary to the GitHub Actions job summary ───────────
+      - name: Write coverage summary
+        run: cat ./CoverageReport/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Enforce ≥ 80 % line coverage on GCE.Core ────────────────────────────────
+      - name: Check GCE.Core coverage threshold (≥ 80 %)
+        run: |
+          python3 - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse("./CoverageReport/Cobertura.xml")
+          root = tree.getroot()
+
+          rate = None
+          for pkg in root.findall(".//package"):
+              if pkg.get("name") == "GCE.Core":
+                  rate = float(pkg.get("line-rate", 0)) * 100
+                  break
+
+          if rate is None:
+              print("WARNING: GCE.Core package not found in merged coverage report.")
+              sys.exit(1)
+
+          print(f"GCE.Core line coverage: {rate:.1f}%")
+          if rate < 80.0:
+              print(f"ERROR: {rate:.1f}% is below the required 80% threshold.", file=sys.stderr)
+              sys.exit(1)
+          else:
+              print("Coverage threshold met.")
+          EOF
+
+      # ── Upload HTML report and Cobertura XML as build artifacts ─────────────────
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ./CoverageReport
+
+      # ── Upload test results (TRX) ────────────────────────────────────────────────
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ./TestResults

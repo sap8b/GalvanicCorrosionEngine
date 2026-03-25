@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Coverlet run settings for XPlat Code Coverage.
+  Passed to dotnet test via: dotnet test ‑‑settings coverlet.runsettings
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <!-- Cobertura XML is consumed by ReportGenerator and most CI tools. -->
+          <Format>cobertura</Format>
+
+          <!-- Only instrument production assemblies; skip test projects and benchmarks. -->
+          <Include>[GCE.*]*</Include>
+          <Exclude>[GCE.*.Tests]*,[GCE.Benchmarks]*,[GCE.Console]*</Exclude>
+
+          <!-- Skip compiler-generated and decorated-out code. -->
+          <ExcludeByAttribute>
+            GeneratedCodeAttribute,
+            ExcludeFromCodeCoverageAttribute,
+            CompilerGeneratedAttribute
+          </ExcludeByAttribute>
+
+          <!-- Auto-implemented properties are trivial; exclude them from the count. -->
+          <SkipAutoProps>true</SkipAutoProps>
+
+          <!-- Count each hit once — avoids skewing branch counts in loops. -->
+          <SingleHit>false</SingleHit>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
