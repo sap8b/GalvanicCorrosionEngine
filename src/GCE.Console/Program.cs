@@ -1,11 +1,78 @@
-﻿using GCE.Atmosphere;
+using GCE.Atmosphere;
 using GCE.Core;
 using GCE.Electrochemistry;
 using GCE.IO;
 using GCE.Simulation;
+using GCE.Configuration;
 
 Console.WriteLine("=== GalvanicCorrosionEngine ===");
 Console.WriteLine();
+
+// ── Config-file mode ──────────────────────────────────────────────────────────
+// Usage: dotnet run --project src/GCE.Console -- --config path/to/simulation.json
+//        dotnet run --project src/GCE.Console -- --config path/to/simulation.yaml
+
+string? configPath = null;
+for (int i = 0; i < args.Length - 1; i++)
+{
+    if (args[i] is "--config" or "-c")
+    {
+        configPath = args[i + 1];
+        break;
+    }
+}
+
+if (configPath is not null)
+{
+    Console.WriteLine($"Loading configuration from: {configPath}");
+    Console.WriteLine();
+
+    var reader    = new SimulationConfigReader();
+    var validator = new SimulationConfigValidator();
+    var mapper    = new SimulationConfigMapper();
+
+    SimulationConfig config;
+    try
+    {
+        config = reader.ReadFile(configPath);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error reading configuration file: {ex.Message}");
+        return 1;
+    }
+
+    var errors = validator.Validate(config);
+    if (errors.Count > 0)
+    {
+        Console.Error.WriteLine("Configuration validation failed:");
+        foreach (var error in errors)
+            Console.Error.WriteLine($"  • {error}");
+        return 1;
+    }
+
+    SimulationParameters parameters = mapper.Map(config);
+
+    Console.WriteLine($"Anode           : {parameters.Pair.Anode.Name}");
+    Console.WriteLine($"Cathode         : {parameters.Pair.Cathode.Name}");
+    Console.WriteLine($"Galvanic voltage: {parameters.Pair.GalvanicVoltage:F3} V");
+    Console.WriteLine($"Duration        : {parameters.DurationSeconds} s  ({parameters.TimeSteps} steps)");
+    if (parameters.WeatherProvider is not null)
+        Console.WriteLine("Weather         : time-varying");
+    Console.WriteLine();
+
+    var result = new SimulationEngine().Run(parameters);
+
+    Console.WriteLine($"Simulation complete : {result.TimePoints.Count} time steps");
+    Console.WriteLine($"Average corrosion rate : {result.AverageCorrosionRate:F4} mm/year");
+    Console.WriteLine();
+
+    string csvPath = Path.Combine(AppContext.BaseDirectory, "corrosion_results_config.csv");
+    new CsvExporter().ExportToFile(result, csvPath);
+    Console.WriteLine($"Results exported to: {csvPath}");
+    return 0;
+}
+
 
 // Retrieve materials from the registry
 IMaterial zinc = MaterialRegistry.Zinc;
@@ -74,3 +141,4 @@ Console.WriteLine();
 string weatherCsvPath = Path.Combine(AppContext.BaseDirectory, "corrosion_results_weather.csv");
 new CsvExporter().ExportToFile(weatherResult, weatherCsvPath);
 Console.WriteLine($"Results exported to : {weatherCsvPath}");
+return 0;

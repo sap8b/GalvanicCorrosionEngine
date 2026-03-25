@@ -1,0 +1,22 @@
+{
+  "$schema": "../../schemas/simulation-config.schema.json",
+  "anode": { "name": "Zinc" },
+  "cathode": { "name": "Mild Steel" },
+  "environment": {
+    "temperatureCelsius": 18.0,
+    "relativeHumidity": 0.72,
+    "chlorideConcentration": 0.5
+  },
+  "durationSeconds": 86400,
+  "timeSteps": 1440,
+  "weather": {
+    "type": "synthetic",
+    "baseTempCelsius": 18.0,
+    "tempAmplitude": 10.0,
+    "baseRelativeHumidity": 0.72,
+    "humidityAmplitude": 0.18,
+    "chlorideConcentration": 0.5,
+    "precipitation": 0.0,
+    "windSpeed": 3.0
+  }
+}

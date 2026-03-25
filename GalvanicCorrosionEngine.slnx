@@ -4,6 +4,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/GCE.Atmosphere/GCE.Atmosphere.csproj" />
+    <Project Path="src/GCE.Configuration/GCE.Configuration.csproj" />
     <Project Path="src/GCE.Console/GCE.Console.csproj" />
     <Project Path="src/GCE.Core/GCE.Core.csproj" />
     <Project Path="src/GCE.Electrochemistry/GCE.Electrochemistry.csproj" />

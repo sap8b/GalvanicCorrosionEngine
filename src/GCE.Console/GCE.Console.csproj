@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GCE.Core\GCE.Core.csproj" />
+    <ProjectReference Include="..\GCE.Configuration\GCE.Configuration.csproj" />
     <ProjectReference Include="..\GCE.Simulation\GCE.Simulation.csproj" />
     <ProjectReference Include="..\GCE.IO\GCE.IO.csproj" />
   </ItemGroup>
