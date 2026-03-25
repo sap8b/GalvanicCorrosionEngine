@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/GCE.Benchmarks/GCE.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/BasicCorrosionExample/BasicCorrosionExample.csproj" />
   </Folder>

@@ -1,4 +1,7 @@
+using System.Threading.Tasks;
+
 namespace GCE.Numerics.Solvers;
+
 
 /// <summary>
 /// Solves the 2-D diffusion equation
@@ -245,21 +248,22 @@ public sealed class DiffusionSolver2D : IPDESolver
 
         // ── Half-step 1: x-implicit, y-explicit ─────────────────────────────
         // For each row j, solve a tridiagonal system in x.
-        // Dirichlet y-BC rows are handled directly without a solve.
-        for (int j = 0; j < _ny; j++)
+        // Rows are mutually independent: different j values write to distinct
+        // uHalf slots (Idx(i,j) = i*ny+j), so the sweep is safely parallelised.
+        Parallel.For(0, _ny, j =>
         {
             // Enforce Dirichlet y-BCs at the intermediate level without a solve.
             if (j == 0 && _bottomBC.Type == BoundaryConditionType.Dirichlet)
             {
                 double val = _bottomBC.Evaluate(tHalf);
                 for (int i = 0; i < _nx; i++) uHalf[Idx(i, 0)] = val;
-                continue;
+                return;
             }
             if (j == _ny - 1 && _topBC.Type == BoundaryConditionType.Dirichlet)
             {
                 double val = _topBC.Evaluate(tHalf);
                 for (int i = 0; i < _nx; i++) uHalf[Idx(i, _ny - 1)] = val;
-                continue;
+                return;
             }
 
             var a   = new double[_nx];
@@ -284,25 +288,26 @@ public sealed class DiffusionSolver2D : IPDESolver
             SolveTridiagonal(a, b, c, rhs, row);
             for (int i = 0; i < _nx; i++)
                 uHalf[Idx(i, j)] = row[i];
-        }
+        });
 
         // ── Half-step 2: y-implicit, x-explicit ─────────────────────────────
         // For each column i, solve a tridiagonal system in y.
-        // Dirichlet x-BC columns are handled directly without a solve.
-        for (int i = 0; i < _nx; i++)
+        // Columns are mutually independent: different i values write to distinct
+        // uNew slots (Idx(i,j) = i*ny+j), so the sweep is safely parallelised.
+        Parallel.For(0, _nx, i =>
         {
             // Enforce Dirichlet x-BCs at the new level without a solve.
             if (i == 0 && _leftBC.Type == BoundaryConditionType.Dirichlet)
             {
                 double val = _leftBC.Evaluate(tNew);
                 for (int j = 0; j < _ny; j++) uNew[Idx(0, j)] = val;
-                continue;
+                return;
             }
             if (i == _nx - 1 && _rightBC.Type == BoundaryConditionType.Dirichlet)
             {
                 double val = _rightBC.Evaluate(tNew);
                 for (int j = 0; j < _ny; j++) uNew[Idx(_nx - 1, j)] = val;
-                continue;
+                return;
             }
 
             var a   = new double[_ny];
@@ -327,7 +332,7 @@ public sealed class DiffusionSolver2D : IPDESolver
             SolveTridiagonal(a, b, c, rhs, col);
             for (int j = 0; j < _ny; j++)
                 uNew[Idx(i, j)] = col[j];
-        }
+        });
     }
 
     // ── Explicit right-hand sides ──────────────────────────────────────────────
