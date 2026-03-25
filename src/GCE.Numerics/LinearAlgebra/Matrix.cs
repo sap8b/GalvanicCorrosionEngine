@@ -7,7 +7,7 @@ namespace GCE.Numerics.LinearAlgebra;
 /// Consolidated from <c>Diffusion2D_Library.RMatrix</c> with modernised C# conventions.
 /// Storage is row-major.  All arithmetic operators return new instances.
 /// </remarks>
-public sealed class Matrix : ICloneable, IEquatable<Matrix>
+public sealed class Matrix : IMatrix, IEquatable<Matrix>
 {
     private readonly double[,] _data;
 

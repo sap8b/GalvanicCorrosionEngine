@@ -8,7 +8,7 @@ namespace GCE.Numerics.LinearAlgebra;
 /// All arithmetic operators create new instances; the original data is never mutated
 /// unless the caller explicitly assigns through the indexer.
 /// </remarks>
-public sealed class Vector : ICloneable, IEquatable<Vector>
+public sealed class Vector : IVector, IEquatable<Vector>
 {
     private readonly double[] _data;
 
