@@ -949,3 +949,418 @@ public class SparseMatrixIsSquareTests
         Assert.False(new SparseMatrix(3, 5).IsSquare);
     }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// IVector / IMatrix interface tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+public class IVectorInterfaceTests
+{
+    [Fact]
+    public void Vector_ImplementsIVector()
+    {
+        IVector v = new Vector([1.0, 2.0, 3.0]);
+        Assert.Equal(3, v.Length);
+        Assert.Equal(1.0, v[0]);
+        Assert.Equal(2.0, v[1]);
+        Assert.Equal(3.0, v[2]);
+    }
+
+    [Fact]
+    public void IVector_Indexer_SetUpdatesValue()
+    {
+        IVector v = new Vector(3);
+        v[1] = 7.5;
+        Assert.Equal(7.5, v[1]);
+    }
+
+    [Fact]
+    public void IVector_Clone_ReturnsIndependentCopy()
+    {
+        IVector v = new Vector([4.0, 5.0]);
+        var copy = (IVector)v.Clone();
+        copy[0] = 99.0;
+        Assert.Equal(4.0, v[0]); // original unchanged
+    }
+}
+
+public class IMatrixInterfaceTests
+{
+    [Fact]
+    public void Matrix_ImplementsIMatrix()
+    {
+        IMatrix m = new Matrix(2, 3);
+        Assert.Equal(2, m.Rows);
+        Assert.Equal(3, m.Cols);
+        Assert.False(m.IsSquare);
+    }
+
+    [Fact]
+    public void SparseMatrix_ImplementsIMatrix()
+    {
+        IMatrix m = new SparseMatrix(4, 4);
+        Assert.Equal(4, m.Rows);
+        Assert.Equal(4, m.Cols);
+        Assert.True(m.IsSquare);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_ImplementsIMatrix()
+    {
+        IMatrix m = new TridiagonalMatrix(3);
+        Assert.Equal(3, m.Rows);
+        Assert.Equal(3, m.Cols);
+        Assert.True(m.IsSquare);
+    }
+
+    [Fact]
+    public void IMatrix_Indexer_SetAndGetWorksThroughInterface()
+    {
+        IMatrix m = new Matrix(2, 2);
+        m[0, 0] = 5.0;
+        m[1, 1] = -3.0;
+        Assert.Equal(5.0, m[0, 0]);
+        Assert.Equal(-3.0, m[1, 1]);
+        Assert.Equal(0.0, m[0, 1]);
+    }
+
+    [Fact]
+    public void IMatrix_Clone_ReturnsIndependentCopy()
+    {
+        IMatrix m = new Matrix(new double[,] { { 1, 2 }, { 3, 4 } });
+        var copy = (IMatrix)m.Clone();
+        copy[0, 0] = 99.0;
+        Assert.Equal(1.0, m[0, 0]); // original unchanged
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TridiagonalMatrix tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+public class TridiagonalMatrixConstructorTests
+{
+    [Fact]
+    public void TridiagonalMatrix_SizeConstructor_CreatesZeroMatrix()
+    {
+        var t = new TridiagonalMatrix(4);
+        Assert.Equal(4, t.Size);
+        Assert.Equal(4, t.Rows);
+        Assert.Equal(4, t.Cols);
+        Assert.True(t.IsSquare);
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++)
+                Assert.Equal(0.0, t[i, j]);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_SizeConstructor_ThrowsForZero()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new TridiagonalMatrix(0));
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_BandConstructor_SetsCorrectValues()
+    {
+        var sub   = new Vector([-1.0, -1.0]);
+        var main  = new Vector([2.0, 2.0, 2.0]);
+        var super = new Vector([-1.0, -1.0]);
+        var t = new TridiagonalMatrix(sub, main, super);
+
+        Assert.Equal(2.0,  t[0, 0]);
+        Assert.Equal(-1.0, t[0, 1]);
+        Assert.Equal(-1.0, t[1, 0]);
+        Assert.Equal(2.0,  t[1, 1]);
+        Assert.Equal(-1.0, t[1, 2]);
+        Assert.Equal(-1.0, t[2, 1]);
+        Assert.Equal(2.0,  t[2, 2]);
+        Assert.Equal(0.0,  t[0, 2]);
+        Assert.Equal(0.0,  t[2, 0]);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_BandConstructor_ThrowsForWrongSubDiagonalLength()
+    {
+        var main  = new Vector([1.0, 2.0, 3.0]);
+        var wrong = new Vector([1.0]);        // should be length 2
+        var ok    = new Vector([1.0, 1.0]);
+        Assert.Throws<ArgumentException>(() => new TridiagonalMatrix(wrong, main, ok));
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_BandConstructor_ThrowsForWrongSuperDiagonalLength()
+    {
+        var main  = new Vector([1.0, 2.0, 3.0]);
+        var wrong = new Vector([1.0]);        // should be length 2
+        var ok    = new Vector([1.0, 1.0]);
+        Assert.Throws<ArgumentException>(() => new TridiagonalMatrix(ok, main, wrong));
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_BandConstructor_ThrowsForNullArguments()
+    {
+        var v = new Vector([1.0, 2.0]);
+        Assert.Throws<ArgumentNullException>(() => new TridiagonalMatrix(null!, v, v));
+        Assert.Throws<ArgumentNullException>(() => new TridiagonalMatrix(v, null!, v));
+        Assert.Throws<ArgumentNullException>(() => new TridiagonalMatrix(v, v, null!));
+    }
+}
+
+public class TridiagonalMatrixIndexerTests
+{
+    [Fact]
+    public void TridiagonalMatrix_Indexer_MainDiagonal_SetAndGet()
+    {
+        var t = new TridiagonalMatrix(3);
+        t[0, 0] = 5.0;
+        t[1, 1] = 6.0;
+        t[2, 2] = 7.0;
+        Assert.Equal(5.0, t[0, 0]);
+        Assert.Equal(6.0, t[1, 1]);
+        Assert.Equal(7.0, t[2, 2]);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Indexer_SubAndSuperDiagonal_SetAndGet()
+    {
+        var t = new TridiagonalMatrix(3);
+        t[1, 0] = -1.0;  // sub-diagonal
+        t[0, 1] = -2.0;  // super-diagonal
+        Assert.Equal(-1.0, t[1, 0]);
+        Assert.Equal(-2.0, t[0, 1]);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Indexer_OffBandGetReturnsZero()
+    {
+        var t = new TridiagonalMatrix(4);
+        t[0, 0] = 1.0;
+        Assert.Equal(0.0, t[0, 2]);
+        Assert.Equal(0.0, t[3, 0]);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Indexer_OffBandSetZeroIsAllowed()
+    {
+        var t = new TridiagonalMatrix(3);
+        // Setting zero to an off-band position should not throw
+        t[0, 2] = 0.0;
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Indexer_OffBandSetNonZeroThrows()
+    {
+        var t = new TridiagonalMatrix(3);
+        Assert.Throws<ArgumentException>(() => t[0, 2] = 1.0);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Indexer_ThrowsForOutOfRange()
+    {
+        var t = new TridiagonalMatrix(3);
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = t[3, 0]);
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = t[0, -1]);
+    }
+}
+
+public class TridiagonalMatrixMultiplyTests
+{
+    [Fact]
+    public void TridiagonalMatrix_Multiply_IdentityTimesVector_ReturnsVector()
+    {
+        var t = new TridiagonalMatrix(3);
+        t[0, 0] = t[1, 1] = t[2, 2] = 1.0;
+        var v = new Vector([1.0, 2.0, 3.0]);
+        var r = t * v;
+        Assert.Equal(1.0, r[0], precision: 12);
+        Assert.Equal(2.0, r[1], precision: 12);
+        Assert.Equal(3.0, r[2], precision: 12);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Multiply_StandardTridiagonal_IsCorrect()
+    {
+        // T = [[2,-1,0],[-1,2,-1],[0,-1,2]]  v = [1,2,3]
+        // Row 0: 2*1 + (-1)*2 = 0
+        // Row 1: (-1)*1 + 2*2 + (-1)*3 = 0
+        // Row 2: (-1)*2 + 2*3 = 4
+        var sub   = new Vector([-1.0, -1.0]);
+        var main  = new Vector([2.0, 2.0, 2.0]);
+        var super = new Vector([-1.0, -1.0]);
+        var t = new TridiagonalMatrix(sub, main, super);
+        var v = new Vector([1.0, 2.0, 3.0]);
+        var r = t * v;
+        Assert.Equal(0.0, r[0], precision: 12);
+        Assert.Equal(0.0, r[1], precision: 12);
+        Assert.Equal(4.0, r[2], precision: 12);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Multiply_SingleElement_IsCorrect()
+    {
+        var t = new TridiagonalMatrix(1);
+        t[0, 0] = 5.0;
+        var v = new Vector([3.0]);
+        var r = t.Multiply(v);
+        Assert.Equal(15.0, r[0], precision: 12);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Multiply_ThrowsForWrongVectorLength()
+    {
+        var t = new TridiagonalMatrix(3);
+        var v = new Vector([1.0, 2.0]);
+        Assert.Throws<ArgumentException>(() => t.Multiply(v));
+    }
+}
+
+public class TridiagonalMatrixSolveTests
+{
+    [Fact]
+    public void TridiagonalMatrix_Solve_IdentitySystem_ReturnsSameVector()
+    {
+        var t = new TridiagonalMatrix(3);
+        t[0, 0] = t[1, 1] = t[2, 2] = 1.0;
+        var rhs = new Vector([3.0, -1.0, 5.0]);
+        var x = t.Solve(rhs);
+        Assert.Equal(3.0,  x[0], precision: 12);
+        Assert.Equal(-1.0, x[1], precision: 12);
+        Assert.Equal(5.0,  x[2], precision: 12);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Solve_StandardSystem_IsCorrect()
+    {
+        // T = [[2,-1,0],[-1,2,-1],[0,-1,2]]  rhs = [1,0,1]
+        // Solution: x = [1, 1, 1]
+        var sub   = new Vector([-1.0, -1.0]);
+        var main  = new Vector([2.0, 2.0, 2.0]);
+        var super = new Vector([-1.0, -1.0]);
+        var t     = new TridiagonalMatrix(sub, main, super);
+        var rhs   = new Vector([1.0, 0.0, 1.0]);
+        var x     = t.Solve(rhs);
+        Assert.Equal(1.0, x[0], precision: 10);
+        Assert.Equal(1.0, x[1], precision: 10);
+        Assert.Equal(1.0, x[2], precision: 10);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Solve_DoesNotMutateMatrix()
+    {
+        // Solve twice to verify the matrix is unchanged between calls.
+        var sub   = new Vector([-1.0, -1.0]);
+        var main  = new Vector([2.0, 2.0, 2.0]);
+        var super = new Vector([-1.0, -1.0]);
+        var t     = new TridiagonalMatrix(sub, main, super);
+        var rhs   = new Vector([1.0, 0.0, 1.0]);
+
+        var x1 = t.Solve(rhs);
+        var x2 = t.Solve(rhs);
+
+        Assert.Equal(x1[0], x2[0], precision: 12);
+        Assert.Equal(x1[1], x2[1], precision: 12);
+        Assert.Equal(x1[2], x2[2], precision: 12);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Solve_SingleElement_IsCorrect()
+    {
+        var t = new TridiagonalMatrix(1);
+        t[0, 0] = 4.0;
+        var x = t.Solve(new Vector([8.0]));
+        Assert.Equal(2.0, x[0], precision: 12);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Solve_ThrowsForWrongRhsLength()
+    {
+        var t = new TridiagonalMatrix(3);
+        Assert.Throws<ArgumentException>(() => t.Solve(new Vector([1.0, 2.0])));
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Solve_SolutionSatisfiesAxEqualsRhs()
+    {
+        // Verify Ax = rhs after solving.
+        var sub   = new Vector([-0.5, -0.5, -0.5]);
+        var main  = new Vector([2.0, 2.0, 2.0, 2.0]);
+        var super = new Vector([-0.5, -0.5, -0.5]);
+        var t     = new TridiagonalMatrix(sub, main, super);
+        var rhs   = new Vector([1.0, 2.0, 3.0, 4.0]);
+        var x     = t.Solve(rhs);
+        var ax    = t.Multiply(x);
+        for (int i = 0; i < rhs.Length; i++)
+            Assert.Equal(rhs[i], ax[i], precision: 10);
+    }
+}
+
+public class TridiagonalMatrixConversionTests
+{
+    [Fact]
+    public void TridiagonalMatrix_ToDenseMatrix_IsCorrect()
+    {
+        var sub   = new Vector([-1.0, -1.0]);
+        var main  = new Vector([2.0, 2.0, 2.0]);
+        var super = new Vector([-1.0, -1.0]);
+        var t     = new TridiagonalMatrix(sub, main, super);
+        var dense = t.ToDenseMatrix();
+
+        Assert.Equal(3, dense.Rows);
+        Assert.Equal(3, dense.Cols);
+        Assert.Equal(2.0,  dense[0, 0]);
+        Assert.Equal(-1.0, dense[0, 1]);
+        Assert.Equal(0.0,  dense[0, 2]);
+        Assert.Equal(-1.0, dense[1, 0]);
+        Assert.Equal(2.0,  dense[1, 1]);
+        Assert.Equal(-1.0, dense[1, 2]);
+        Assert.Equal(0.0,  dense[2, 0]);
+        Assert.Equal(-1.0, dense[2, 1]);
+        Assert.Equal(2.0,  dense[2, 2]);
+    }
+}
+
+public class TridiagonalMatrixCloneTests
+{
+    [Fact]
+    public void TridiagonalMatrix_Clone_IsDeepCopy()
+    {
+        var t = new TridiagonalMatrix(3);
+        t[0, 0] = 5.0;
+        var copy = t.Clone();
+        copy[0, 0] = 99.0;
+        Assert.Equal(5.0, t[0, 0]); // original unchanged
+    }
+}
+
+public class TridiagonalMatrixEqualityTests
+{
+    [Fact]
+    public void TridiagonalMatrix_Equals_SameValuesAreEqual()
+    {
+        var sub  = new Vector([-1.0]);
+        var main = new Vector([2.0, 2.0]);
+        var sup  = new Vector([-1.0]);
+        var t1   = new TridiagonalMatrix(sub, main, sup);
+        var t2   = new TridiagonalMatrix(sub, main, sup);
+        Assert.True(t1.Equals(t2));
+        Assert.True(t1 == t2);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Equals_DifferentValuesAreNotEqual()
+    {
+        var t1 = new TridiagonalMatrix(3);
+        t1[0, 0] = 1.0;
+        var t2 = new TridiagonalMatrix(3);
+        t2[0, 0] = 2.0;
+        Assert.False(t1.Equals(t2));
+        Assert.True(t1 != t2);
+    }
+
+    [Fact]
+    public void TridiagonalMatrix_Equals_NullReturnsFalse()
+    {
+        var t = new TridiagonalMatrix(2);
+        Assert.False(t.Equals(null));
+    }
+}

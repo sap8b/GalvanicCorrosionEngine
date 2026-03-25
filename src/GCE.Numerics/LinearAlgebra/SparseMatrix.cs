@@ -19,7 +19,7 @@ namespace GCE.Numerics.LinearAlgebra;
 /// pattern is fixed.
 /// </para>
 /// </remarks>
-public sealed class SparseMatrix : ICloneable
+public sealed class SparseMatrix : IMatrix
 {
     // DOK storage: only non-zero entries are kept.
     private readonly Dictionary<(int row, int col), double> _entries;
