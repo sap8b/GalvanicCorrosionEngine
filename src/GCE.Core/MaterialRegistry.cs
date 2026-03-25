@@ -47,6 +47,51 @@ public static class MaterialRegistry
             MolarMass: 0.02430, ElectronsTransferred: 2, Density: 1738.0));
 
     // -----------------------------------------------------------------------
+    // Engineering alloys  (AA7075, SS316L, AZ31B)
+    // Electrochemical data derived from published open-circuit potential
+    // measurements and corrosion-rate literature.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// AA7075-T6 aluminium alloy (Al–Zn–Mg–Cu, ≈ −0.83 V vs. SCE ≈ −0.59 V vs. SHE).
+    /// High-strength aerospace alloy; highly susceptible to galvanic corrosion.
+    /// </summary>
+    public static IMaterial AA7075 { get; } =
+        Register(new Alloy("AA7075",
+            standardPotential:      -0.59,
+            exchangeCurrentDensity:  1e-6,
+            molarMass:               0.02698,
+            electronsTransferred:    3,
+            density:                 2810.0,
+            designation:             "AA7075-T6"));
+
+    /// <summary>
+    /// SS316L austenitic stainless steel (Fe–18Cr–10Ni–2Mo, passive ≈ +0.10 V vs. SHE).
+    /// Low-carbon grade; widely used in marine and chemical environments.
+    /// </summary>
+    public static IMaterial SS316L { get; } =
+        Register(new Alloy("SS316L",
+            standardPotential:       0.10,
+            exchangeCurrentDensity:  1e-6,
+            molarMass:               0.05585,
+            electronsTransferred:    2,
+            density:                 7990.0,
+            designation:             "UNS S31603"));
+
+    /// <summary>
+    /// AZ31B magnesium alloy (Mg–3Al–1Zn, ≈ −1.67 V vs. SHE).
+    /// Wrought magnesium alloy; among the most active structural metals.
+    /// </summary>
+    public static IMaterial AZ31B { get; } =
+        Register(new Alloy("AZ31B",
+            standardPotential:      -1.67,
+            exchangeCurrentDensity:  5e-6,
+            molarMass:               0.02430,
+            electronsTransferred:    2,
+            density:                 1770.0,
+            designation:             "ASTM AZ31B"));
+
+    // -----------------------------------------------------------------------
     // Registry operations
     // -----------------------------------------------------------------------
 
