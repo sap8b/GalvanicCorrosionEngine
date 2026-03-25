@@ -61,7 +61,10 @@ Depends on `GCE.Core`, `GCE.Numerics`, `GCE.Electrochemistry`, and `GCE.Atmosphe
 
 ### GCE.IO
 Output adapters:
-- `CsvExporter` — Serialises a `SimulationResult` to CSV (file or arbitrary `TextWriter`).
+- `IResultWriter` — Common interface implemented by all result writers; exposes `Write(SimulationResult, TextWriter)` and `WriteToFile(SimulationResult, string)`.
+- `CsvResultWriter` — Serialises a `SimulationResult` to CSV.
+- `JsonResultWriter` — Serialises a `SimulationResult` to JSON (pretty-printed by default; configurable via `Indented`).
+- `VtkResultWriter` — Writes a VTK XML RectilinearGrid (`.vtr`) file; optionally embeds a `GeometryMesh` as spatial point data alongside time-series field data.
 
 Depends on `GCE.Core` and `GCE.Simulation`.
 
