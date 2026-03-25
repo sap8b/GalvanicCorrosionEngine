@@ -4,9 +4,13 @@ This document summarises the performance profile of GalvanicCorrosionEngine,
 describes the bottlenecks that were identified, and records the optimisations
 introduced in **Phase 6**.
 
----
+The performance numbers in this document were captured on a reference build machine
+(4-core / 8-thread x86-64, ~3.2 GHz, AVX2, 16 GB RAM, Ubuntu 22.04, .NET 10.0 Release mode).
+Your results will vary depending on CPU, core count, SIMD width, and JIT tier.
+Use `dotnet run --project benchmarks/GCE.Benchmarks -c Release` on your own hardware for
+authoritative measurements.
 
-## Benchmark Suite
+
 
 Benchmarks live in `benchmarks/GCE.Benchmarks/` and are written with
 [BenchmarkDotNet](https://benchmarkdotnet.org/) 0.14.
