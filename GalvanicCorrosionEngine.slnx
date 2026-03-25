@@ -4,6 +4,8 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/BasicCorrosionExample/BasicCorrosionExample.csproj" />
+    <Project Path="samples/BoltInPlate/BoltInPlate.csproj" />
+    <Project Path="samples/SideBySide/SideBySide.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/GCE.Atmosphere/GCE.Atmosphere.csproj" />
