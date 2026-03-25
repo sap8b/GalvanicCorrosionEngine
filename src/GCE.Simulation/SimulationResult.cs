@@ -17,4 +17,11 @@ public sealed class SimulationResult
     /// <summary>Gets the average corrosion rate over the simulation (mm/year).</summary>
     public double AverageCorrosionRate =>
         CorrosionRates.Count == 0 ? 0.0 : CorrosionRates.Average();
+
+    /// <summary>
+    /// Gets the convergence history recorded during the simulation.
+    /// Populated only when <see cref="SimulationParameters.UseAdaptiveTimeStep"/> is
+    /// <see langword="true"/>; otherwise empty.
+    /// </summary>
+    public IReadOnlyList<ConvergenceInfo> ConvergenceHistory { get; init; } = [];
 }
