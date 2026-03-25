@@ -27,6 +27,11 @@ namespace GCE.Simulation;
 public sealed class SimulationEngine : ISimulationRunner
 {
     /// <summary>
+    /// Maximum ratio by which the adaptive time step may exceed the nominal step size.
+    /// An adaptive step is clamped to at most <c>nominalDt × MaxAdaptiveStepMultiplier</c>.
+    /// </summary>
+    private const double MaxAdaptiveStepMultiplier = 4.0;
+    /// <summary>
     /// Runs a galvanic corrosion simulation synchronously and returns the full result.
     /// </summary>
     /// <param name="parameters">Simulation configuration.</param>
@@ -38,14 +43,18 @@ public sealed class SimulationEngine : ISimulationRunner
     {
         ArgumentNullException.ThrowIfNull(parameters);
 
-        var ode = BuildOde(parameters);
-        double initialPotential = InitialPotential(parameters);
-
-        var solver = new RungeKuttaSolver(ode);
-        var trajectory = solver.Integrate(
-            0, parameters.DurationSeconds, initialPotential, parameters.TimeSteps);
-
-        return BuildResult(trajectory, parameters);
+        // Delegate to RunCoreAsync (synchronous completion is guaranteed here).
+        return RunCoreAsync(
+            startStep:        0,
+            startTime:        0.0,
+            startPotential:   InitialPotential(parameters),
+            priorTimes:       [],
+            priorPotentials:  [],
+            priorRates:       [],
+            parameters:       parameters,
+            progress:         null,
+            checkpoint:       out _,
+            cancellationToken: CancellationToken.None).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -132,10 +141,16 @@ public sealed class SimulationEngine : ISimulationRunner
         var rates      = new List<double>(priorRates);
 
         var ode           = BuildOde(parameters);
-        var solver        = new RungeKuttaSolver(ode);
-        double dt         = parameters.DurationSeconds / parameters.TimeSteps;
+        double nominalDt  = parameters.DurationSeconds / parameters.TimeSteps;
         double t          = startTime;
         double potential  = startPotential;
+
+        // Adaptive time-stepping components (created only when needed).
+        TimeEvolver? timeEvolver = null;
+        if (parameters.UseAdaptiveTimeStep)
+            timeEvolver = new TimeEvolver(new ConvergenceChecker());
+
+        var solver = new RungeKuttaSolver(ode);
 
         // Include the initial point when starting fresh (startStep == 0).
         if (startStep == 0)
@@ -145,6 +160,8 @@ public sealed class SimulationEngine : ISimulationRunner
             potentials.Add(potential);
             rates.Add(rate0);
         }
+
+        double currentDt = nominalDt;
 
         for (int step = startStep; step < parameters.TimeSteps; step++)
         {
@@ -162,8 +179,27 @@ public sealed class SimulationEngine : ISimulationRunner
                 break;
             }
 
-            potential = solver.Step(t, potential, dt);
-            t        += dt;
+            if (timeEvolver is not null)
+            {
+                // Adaptive path: let TimeEvolver choose an appropriate dt.
+                // The loop still iterates exactly TimeSteps times so the result
+                // always contains TimeSteps + 1 data points; individual dt values
+                // adapt to the solution dynamics.  The trial dt is clamped to the
+                // remaining simulation time so that the final point never overshoots
+                // DurationSeconds.
+                double remainingTime = parameters.DurationSeconds - t;
+                double trialDt       = Math.Min(currentDt, remainingTime);
+                (potential, currentDt) = timeEvolver.AdvanceAdaptive(t, potential, trialDt, ode,
+                    maxDt: nominalDt * MaxAdaptiveStepMultiplier);
+            }
+            else
+            {
+                // Fixed-step path.
+                potential = solver.Step(t, potential, nominalDt);
+                currentDt = nominalDt;
+            }
+
+            t += currentDt;
 
             double rate = ComputeCorrosionRate(parameters, t, potential);
             times.Add(t);
@@ -183,9 +219,11 @@ public sealed class SimulationEngine : ISimulationRunner
 
         var result = new SimulationResult
         {
-            TimePoints      = times.AsReadOnly(),
-            MixedPotentials = potentials.AsReadOnly(),
-            CorrosionRates  = rates.AsReadOnly(),
+            TimePoints        = times.AsReadOnly(),
+            MixedPotentials   = potentials.AsReadOnly(),
+            CorrosionRates    = rates.AsReadOnly(),
+            ConvergenceHistory = timeEvolver?.ConvergenceHistory
+                                     ?? (IReadOnlyList<ConvergenceInfo>)[],
         };
 
         return Task.FromResult(result);
@@ -243,31 +281,4 @@ public sealed class SimulationEngine : ISimulationRunner
         parameters.WeatherProvider is not null
             ? new WeatherDrivenAtmosphericConditions(parameters.WeatherProvider.GetObservation(t))
             : parameters.Environment;
-
-    /// <summary>
-    /// Builds a <see cref="SimulationResult"/> from a completed RK4 trajectory.
-    /// </summary>
-    private static SimulationResult BuildResult(
-        IReadOnlyList<(double T, double Y)> trajectory,
-        SimulationParameters                parameters)
-    {
-        var times      = trajectory.Select(p => p.T).ToList();
-        var potentials = trajectory.Select(p => p.Y).ToList();
-        var rates = times
-            .Zip(potentials, (t, e) => (t, e))
-            .Select(pair =>
-            {
-                var env = GetEnvironmentAt(parameters, pair.t);
-                return new ButlerVolmerModel(parameters.Pair.Anode, env)
-                    .ComputeCorrosionRate(pair.e);
-            })
-            .ToList();
-
-        return new SimulationResult
-        {
-            TimePoints      = times.AsReadOnly(),
-            MixedPotentials = potentials.AsReadOnly(),
-            CorrosionRates  = rates.AsReadOnly(),
-        };
-    }
 }

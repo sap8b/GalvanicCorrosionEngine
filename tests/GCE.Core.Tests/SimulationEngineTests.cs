@@ -466,4 +466,86 @@ public class SimulationEngineTests
         Assert.Equal(51, result.TimePoints.Count);
         Assert.All(result.CorrosionRates, r => Assert.True(r >= 0.0));
     }
+
+    // ── Adaptive time-stepping ────────────────────────────────────────────────
+
+    [Fact]
+    public void Run_WithAdaptiveTimeStep_ReturnsCorrectStepCount()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 3600, timeSteps: 50) with { UseAdaptiveTimeStep = true };
+
+        var result = Engine.Run(parameters);
+
+        Assert.Equal(51, result.TimePoints.Count);
+        Assert.Equal(51, result.MixedPotentials.Count);
+        Assert.Equal(51, result.CorrosionRates.Count);
+    }
+
+    [Fact]
+    public void Run_WithAdaptiveTimeStep_ConvergenceHistoryIsPopulated()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { UseAdaptiveTimeStep = true };
+
+        var result = Engine.Run(parameters);
+
+        Assert.NotEmpty(result.ConvergenceHistory);
+    }
+
+    [Fact]
+    public void Run_WithFixedTimeStep_ConvergenceHistoryIsEmpty()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10);   // UseAdaptiveTimeStep defaults to false
+
+        var result = Engine.Run(parameters);
+
+        Assert.Empty(result.ConvergenceHistory);
+    }
+
+    [Fact]
+    public void Run_WithAdaptiveTimeStep_CorrosionRates_ArePositive()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters() with
+        {
+            UseAdaptiveTimeStep = true,
+        };
+
+        var result = Engine.Run(parameters);
+
+        Assert.All(result.CorrosionRates, r => Assert.True(r >= 0.0));
+    }
+
+    [Fact]
+    public void Run_WithAdaptiveTimeStep_MixedPotential_LiesBetweenElectrodeStandardPotentials()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters() with
+        {
+            UseAdaptiveTimeStep = true,
+        };
+
+        var result = Engine.Run(parameters);
+
+        double anodeE   = MaterialRegistry.Zinc.StandardPotential;
+        double cathodeE = MaterialRegistry.Copper.StandardPotential;
+
+        foreach (double e in result.MixedPotentials)
+        {
+            Assert.True(e >= anodeE,   $"Potential {e} is below anode OCP {anodeE}.");
+            Assert.True(e <= cathodeE, $"Potential {e} is above cathode OCP {cathodeE}.");
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_WithAdaptiveTimeStep_ReturnsResultAndPopulatesConvergenceHistory()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { UseAdaptiveTimeStep = true };
+
+        var result = await Engine.RunAsync(parameters, progress: null, out _, CancellationToken.None);
+
+        Assert.Equal(11, result.TimePoints.Count);
+        Assert.NotEmpty(result.ConvergenceHistory);
+    }
 }
