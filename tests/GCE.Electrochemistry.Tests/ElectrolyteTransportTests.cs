@@ -1,7 +1,8 @@
+using GCE.Core;
 using GCE.Electrochemistry;
 using GCE.Numerics.Solvers;
 
-namespace GCE.Core.Tests;
+namespace GCE.Electrochemistry.Tests;
 
 // ── Species tests ──────────────────────────────────────────────────────────────
 

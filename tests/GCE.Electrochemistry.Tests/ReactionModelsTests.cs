@@ -1,7 +1,7 @@
 using GCE.Core;
 using GCE.Electrochemistry;
 
-namespace GCE.Core.Tests;
+namespace GCE.Electrochemistry.Tests;
 
 // ── OxygenReductionReaction tests ─────────────────────────────────────────────
 

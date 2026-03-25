@@ -21,7 +21,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GCE.Core\GCE.Core.csproj" />
     <ProjectReference Include="..\..\src\GCE.Atmosphere\GCE.Atmosphere.csproj" />
-    <ProjectReference Include="..\..\src\GCE.Electrochemistry\GCE.Electrochemistry.csproj" />
   </ItemGroup>
 
 </Project>
