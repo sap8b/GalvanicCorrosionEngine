@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace GCE.Numerics.LinearAlgebra;
 
 /// <summary>
@@ -141,9 +143,20 @@ public sealed class Vector : IVector, IEquatable<Vector>
     public static double Dot(Vector v1, Vector v2)
     {
         ThrowIfLengthMismatch(v1, v2, nameof(v2));
-        double result = 0.0;
-        for (int i = 0; i < v1.Length; i++)
-            result += v1._data[i] * v2._data[i];
+        ReadOnlySpan<double> a = v1._data;
+        ReadOnlySpan<double> b = v2._data;
+        int n        = a.Length;
+        int simdWidth = Vector<double>.Count;
+        var vSum     = Vector<double>.Zero;
+        int i        = 0;
+
+        for (; i <= n - simdWidth; i += simdWidth)
+            vSum += new Vector<double>(a.Slice(i)) * new Vector<double>(b.Slice(i));
+
+        double result = System.Numerics.Vector.Dot(vSum, System.Numerics.Vector<double>.One);
+        for (; i < n; i++)
+            result += a[i] * b[i];
+
         return result;
     }
 
