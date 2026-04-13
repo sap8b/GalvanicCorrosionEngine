@@ -20,9 +20,9 @@ through the intervening electrolyte.
 
 The governing electrode kinetics are described by the Butler–Volmer equation:
 
-$$i = i_0 \left[ \exp\!\left(\frac{\alpha_a F \eta}{RT}\right) - \exp\!\left(-\frac{\alpha_c F \eta}{RT}\right) \right]$$
+$$i = i_0 \left[ e^{\left(\frac{\alpha_a zF \eta}{RT}\right)} - e^{\left(-\frac{\alpha_c zF \eta}{RT}\right)} \right]$$
 
-where *i* is the current density, *i*₀ is the exchange current density, α*ₐ* and α*꜀*
+where *i* is the current density, $i_0$ is the exchange current density, $\alpha_a$ and $\alpha_c$
 are the anodic and cathodic transfer coefficients, *F* is Faraday's constant, *η* is the
 overpotential (the deviation from equilibrium potential), *R* is the universal gas
 constant, and *T* is temperature in kelvin. The *mixed potential* (or *corrosion
