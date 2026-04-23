@@ -2,6 +2,7 @@ using GCE.Atmosphere;
 using GCE.Core;
 using GCE.Electrochemistry;
 using GCE.Numerics;
+using GCE.Numerics.Solvers;
 
 namespace GCE.Simulation;
 
@@ -152,6 +153,23 @@ public sealed class SimulationEngine : ISimulationRunner
 
         var solver = new RungeKuttaSolver(ode);
 
+        // Species transport tracking.
+        Dictionary<string, List<double>>? speciesHistory = null;
+        if (parameters.TrackedSpecies is { Count: > 0 })
+        {
+            speciesHistory = new Dictionary<string, List<double>>();
+            foreach (var st in parameters.TrackedSpecies)
+                speciesHistory[st.Species.Name] = new List<double>();
+        }
+
+        // pH tracking
+        List<double>? pHList = null;
+        double currentpH = parameters.Environment.pH;
+        if (parameters.TrackpH)
+        {
+            pHList = new List<double>();
+        }
+
         // Include the initial point when starting fresh (startStep == 0).
         if (startStep == 0)
         {
@@ -159,6 +177,14 @@ public sealed class SimulationEngine : ISimulationRunner
             times.Add(t);
             potentials.Add(potential);
             rates.Add(rate0);
+
+            if (speciesHistory is not null && parameters.TrackedSpecies is not null)
+            {
+                foreach (var st in parameters.TrackedSpecies)
+                    speciesHistory[st.Species.Name].Add(st.Species.Concentration);
+            }
+
+            pHList?.Add(currentpH);
         }
 
         double currentDt = nominalDt;
@@ -177,6 +203,16 @@ public sealed class SimulationEngine : ISimulationRunner
                     CorrosionRates   = rates.AsReadOnly(),
                 };
                 break;
+            }
+
+            // Advance species transport.
+            if (parameters.TrackedSpecies is not null)
+            {
+                foreach (var st in parameters.TrackedSpecies)
+                {
+                    st.Advance(1);
+                    speciesHistory?[st.Species.Name].Add(st.Species.Concentration);
+                }
             }
 
             if (timeEvolver is not null)
@@ -206,6 +242,22 @@ public sealed class SimulationEngine : ISimulationRunner
             potentials.Add(potential);
             rates.Add(rate);
 
+            if (pHList is not null)
+            {
+                // Update pH: net anodic current per unit area × dt produces H⁺
+                // (simplified: corrosion dissolves metal, not directly H⁺, but
+                //  for pH tracking we use the net current as a proxy)
+                var envForPh  = GetEnvironmentAt(parameters, t);
+                var anodeForPh = new ButlerVolmerModel(parameters.Pair.Anode, envForPh);
+                double iAnodePh = anodeForPh.ComputeCurrentDensity(potential);
+                // Assume 1 L effective volume, Faraday's law for H⁺ change
+                double deltaH = iAnodePh * currentDt / (PhysicalConstants.Faraday * 1.0);
+                double hConc  = Math.Pow(10.0, -currentpH);          // mol/L
+                hConc = Math.Max(hConc + deltaH * 1000.0, 1e-14);    // convert mol/m³ → mol/L
+                currentpH = -Math.Log10(hConc);
+                pHList.Add(currentpH);
+            }
+
             progress?.Report(new SimulationProgress(
                 CurrentStep:      step + 1,
                 TotalSteps:       parameters.TimeSteps,
@@ -217,13 +269,45 @@ public sealed class SimulationEngine : ISimulationRunner
 
         checkpoint = capturedCheckpoint;
 
+        // Spatial solve at the final mixed potential if a mesh was provided.
+        double[]? nodalPotentials    = null;
+        double[]? nodalCorrosionRates = null;
+        if (parameters.Mesh is not null && potentials.Count > 0)
+        {
+            double finalE  = potentials[^1];
+            double anodeE  = parameters.Pair.Anode.StandardPotential;
+            double cathodeE = parameters.Pair.Cathode.StandardPotential;
+            var    lastEnv  = GetEnvironmentAt(parameters, times.Count > 0 ? times[^1] : 0.0);
+            double kappa    = lastEnv.IonicConductivity > 0 ? lastEnv.IonicConductivity : 1e-3;
+
+            (nodalPotentials, nodalCorrosionRates) = SpatialSolver.Solve(
+                parameters.Mesh,
+                anodeE,
+                cathodeE,
+                kappa,
+                parameters.Pair.Anode);
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<double>>? speciesConcentrationHistory = null;
+        if (speciesHistory is not null)
+        {
+            var dict = new Dictionary<string, IReadOnlyList<double>>();
+            foreach (var kvp in speciesHistory)
+                dict[kvp.Key] = kvp.Value.AsReadOnly();
+            speciesConcentrationHistory = dict;
+        }
+
         var result = new SimulationResult
         {
-            TimePoints        = times.AsReadOnly(),
-            MixedPotentials   = potentials.AsReadOnly(),
-            CorrosionRates    = rates.AsReadOnly(),
-            ConvergenceHistory = timeEvolver?.ConvergenceHistory
-                                     ?? (IReadOnlyList<ConvergenceInfo>)[],
+            TimePoints           = times.AsReadOnly(),
+            MixedPotentials      = potentials.AsReadOnly(),
+            CorrosionRates       = rates.AsReadOnly(),
+            ConvergenceHistory   = timeEvolver?.ConvergenceHistory
+                                       ?? (IReadOnlyList<ConvergenceInfo>)[],
+            NodalPotentials      = nodalPotentials,
+            NodalCorrosionRates  = nodalCorrosionRates,
+            SpeciesConcentrationHistory = speciesConcentrationHistory,
+            pHHistory = pHList?.AsReadOnly(),
         };
 
         return Task.FromResult(result);
@@ -244,10 +328,26 @@ public sealed class SimulationEngine : ISimulationRunner
             var anodeModel   = new ButlerVolmerModel(parameters.Pair.Anode,   env);
             var cathodeModel = new ButlerVolmerModel(parameters.Pair.Cathode, env);
 
-            // dE/dt proportional to net current (relaxation model):
-            // drives potential toward the mixed-potential equilibrium.
-            double netCurrent = anodeModel.ComputeCurrentDensity(potential)
-                              + cathodeModel.ComputeCurrentDensity(potential);
+            // Compute solution resistance Rs = PathLength / IonicConductivity (Ω·m²).
+            double rs = 0.0;
+            if (parameters.PathLength > 0.0 && env.IonicConductivity > 0.0)
+                rs = parameters.PathLength / env.IonicConductivity;
+
+            double iAnode   = anodeModel.ComputeCurrentDensity(potential);
+            double iCathode = cathodeModel.ComputeCurrentDensity(potential);
+
+            if (rs > 0.0)
+            {
+                // Ohmic IR-drop correction: the net current flowing through the
+                // solution resistance causes a voltage drop V_IR = iNet × Rs.
+                // Both electrode reactions see a shifted effective potential.
+                double iNet  = iAnode + iCathode;
+                double vDrop = Math.Clamp(iNet * rs, -1.0, 1.0);
+                iAnode   = anodeModel.ComputeCurrentDensity(potential - vDrop);
+                iCathode = cathodeModel.ComputeCurrentDensity(potential - vDrop);
+            }
+
+            double netCurrent = iAnode + iCathode;
             return -netCurrent * 0.01;
         };
     }
@@ -277,8 +377,26 @@ public sealed class SimulationEngine : ISimulationRunner
     /// When a weather provider is configured it is queried; otherwise the static
     /// environment from the parameters is returned.
     /// </summary>
-    private static IEnvironment GetEnvironmentAt(SimulationParameters parameters, double t) =>
-        parameters.WeatherProvider is not null
-            ? new WeatherDrivenAtmosphericConditions(parameters.WeatherProvider.GetObservation(t))
-            : parameters.Environment;
+    private static IEnvironment GetEnvironmentAt(SimulationParameters parameters, double t)
+    {
+        if (parameters.WeatherProvider is not null)
+        {
+            var obs = parameters.WeatherProvider.GetObservation(t);
+            if (parameters.FilmEvolution is not null)
+            {
+                // Advance the film by a small nominal step using the current observation.
+                // dt is approximated as DurationSeconds/TimeSteps.
+                double dt = parameters.DurationSeconds / parameters.TimeSteps;
+                parameters.FilmEvolution.Advance(dt, obs);
+                // Return an AtmosphericConditions derived from the updated film state.
+                var state = parameters.FilmEvolution.State;
+                return new AtmosphericConditions(
+                    state.SurfaceTemperatureCelsius,
+                    obs.RelativeHumidity,
+                    state.SaltConcentrationMolPerL);
+            }
+            return new WeatherDrivenAtmosphericConditions(obs);
+        }
+        return parameters.Environment;
+    }
 }

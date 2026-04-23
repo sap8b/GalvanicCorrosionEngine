@@ -346,4 +346,31 @@ public class VtkResultWriterTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void Write_WithNodalData_WritesAdditionalPointDataArrays()
+    {
+        // A result that includes nodal potentials and corrosion rates (as would be
+        // produced when a GeometryMesh is provided to SimulationParameters).
+        var nodalPotentials    = new double[] { -0.50, -0.45, -0.48, -0.43, -0.46, 0.10 };
+        var nodalCorrosionRates = new double[] { 0.10, 0.20, 0.15, 0.25, 0.12, 0.05 };
+
+        var result = new SimulationResult
+        {
+            TimePoints      = [0.0, 3600.0],
+            MixedPotentials = [-0.42, -0.41],
+            CorrosionRates  = [0.1, 0.12],
+            NodalPotentials    = nodalPotentials,
+            NodalCorrosionRates = nodalCorrosionRates,
+        };
+
+        var writer = new VtkResultWriter(WriterFixtures.TinyMesh());
+        using var sw = new StringWriter();
+
+        writer.Write(result, sw);
+
+        string xml = sw.ToString();
+        Assert.Contains("NodalPotential_V",          xml);
+        Assert.Contains("NodalCorrosionRate_mmPerYear", xml);
+    }
 }

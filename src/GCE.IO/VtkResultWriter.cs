@@ -89,6 +89,10 @@ public sealed class VtkResultWriter : IResultWriter
         {
             writer.WriteLine("      <PointData>");
             WriteRegionArray(writer, _mesh, indent: 8);
+            if (result.NodalPotentials is { Length: > 0 })
+                WriteDataArray(writer, "NodalPotential_V",           result.NodalPotentials,     indent: 8);
+            if (result.NodalCorrosionRates is { Length: > 0 })
+                WriteDataArray(writer, "NodalCorrosionRate_mmPerYear", result.NodalCorrosionRates, indent: 8);
             writer.WriteLine("      </PointData>");
         }
 

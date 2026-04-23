@@ -470,3 +470,459 @@ public class IGeometryBuilderContractTests
         Assert.Equal(mesh.NodesY, mesh.Regions.GetLength(1));
     }
 }
+
+// ── CoaxialCylinderGeometry tests ─────────────────────────────────────────────
+
+public class CoaxialCylinderGeometryTests
+{
+    // Inner: zinc (anode, −0.76 V), outer: copper (cathode, +0.34 V).
+    // innerRadius = 5 mm, outerRadius = 20 mm, length = 100 mm.
+    private static CoaxialCylinderGeometry CreateDefault() =>
+        new(GeometryFixtures.Anode, GeometryFixtures.Cathode,
+            innerRadius: 0.005, outerRadius: 0.020, length: 0.100);
+
+    [Fact]
+    public void Constructor_StoresProperties()
+    {
+        var g = CreateDefault();
+        Assert.Equal(GeometryFixtures.Anode,   g.InnerMaterial);
+        Assert.Equal(GeometryFixtures.Cathode, g.OuterMaterial);
+        Assert.Equal(0.005, g.InnerRadius);
+        Assert.Equal(0.020, g.OuterRadius);
+        Assert.Equal(0.100, g.Length);
+    }
+
+    [Fact]
+    public void Constructor_ZincInner_IsAnode()
+    {
+        var g = CreateDefault();
+        Assert.Equal(MaterialRegistry.Zinc,   g.AnodeMaterial);
+        Assert.Equal(MaterialRegistry.Copper, g.CathodeMaterial);
+    }
+
+    [Fact]
+    public void Constructor_NobleInner_BecomesCathode()
+    {
+        var g = new CoaxialCylinderGeometry(
+            MaterialRegistry.Copper, MaterialRegistry.Zinc,
+            innerRadius: 0.005, outerRadius: 0.020, length: 0.100);
+
+        Assert.Equal(MaterialRegistry.Zinc,   g.AnodeMaterial);
+        Assert.Equal(MaterialRegistry.Copper, g.CathodeMaterial);
+    }
+
+    [Fact]
+    public void Constructor_OuterRadiusSmallerThanInner_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CoaxialCylinderGeometry(
+                GeometryFixtures.Anode, GeometryFixtures.Cathode,
+                innerRadius: 0.020, outerRadius: 0.005, length: 0.100));
+    }
+
+    [Fact]
+    public void Constructor_EqualRadii_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CoaxialCylinderGeometry(
+                GeometryFixtures.Anode, GeometryFixtures.Cathode,
+                innerRadius: 0.010, outerRadius: 0.010, length: 0.100));
+    }
+
+    [Fact]
+    public void Constructor_SamePotentialMaterials_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CoaxialCylinderGeometry(
+                MaterialRegistry.Zinc, MaterialRegistry.Zinc,
+                innerRadius: 0.005, outerRadius: 0.020, length: 0.100));
+    }
+
+    [Fact]
+    public void Constructor_NonPositiveInnerRadius_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CoaxialCylinderGeometry(
+                GeometryFixtures.Anode, GeometryFixtures.Cathode,
+                innerRadius: 0.0, outerRadius: 0.020, length: 0.100));
+    }
+
+    [Fact]
+    public void Build_AnodeArea_Equals2PiInnerRL()
+    {
+        var g = CreateDefault();
+        double expected = 2.0 * Math.PI * g.InnerRadius * g.Length;
+        var cell = g.Build(GeometryFixtures.Electrolyte);
+        Assert.Equal(expected, cell.Anode.Area, precision: 10);
+    }
+
+    [Fact]
+    public void Build_CathodeArea_Equals2PiOuterRL()
+    {
+        var g = CreateDefault();
+        double expected = 2.0 * Math.PI * g.OuterRadius * g.Length;
+        var cell = g.Build(GeometryFixtures.Electrolyte);
+        Assert.Equal(expected, cell.Cathode.Area, precision: 10);
+    }
+
+    [Fact]
+    public void Build_NullElectrolyte_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CreateDefault().Build(null!));
+
+    [Fact]
+    public void BuildMesh_HasCorrectNodeCounts()
+    {
+        var mesh = CreateDefault().BuildMesh(12, 8);
+        Assert.Equal(12, mesh.NodesX);
+        Assert.Equal(8,  mesh.NodesY);
+    }
+
+    [Fact]
+    public void BuildMesh_OriginNode_IsInInnerRegion()
+    {
+        // With odd node counts the centre node is exactly at (0, 0).
+        var mesh = CreateDefault().BuildMesh(11, 11);
+        // Centre index = 5 for 11 nodes.
+        Assert.Equal(0, mesh.Regions[5, 5]); // inner = anode = region 0
+    }
+
+    [Fact]
+    public void BuildMesh_CornerNode_IsInOuterRegion()
+    {
+        var mesh = CreateDefault().BuildMesh(20, 20);
+        // Corners are at (±OuterRadius, ±OuterRadius): outside inner radius.
+        Assert.Equal(1, mesh.Regions[0,  0]);
+        Assert.Equal(1, mesh.Regions[19, 19]);
+    }
+
+    [Fact]
+    public void BuildMesh_XCoordinates_SpanFullOuterDiameter()
+    {
+        var g = CreateDefault();
+        var mesh = g.BuildMesh(21, 21);
+        Assert.Equal(-g.OuterRadius, mesh.XCoordinates[0],  precision: 10);
+        Assert.Equal(+g.OuterRadius, mesh.XCoordinates[20], precision: 10);
+    }
+
+    [Fact]
+    public void BuildMesh_TooFewNodes_Throws() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CreateDefault().BuildMesh(nodesX: 1));
+}
+
+// ── ImmersedRodGeometry tests ─────────────────────────────────────────────────
+
+public class ImmersedRodGeometryTests
+{
+    // Rod: zinc (anode, −0.76 V), bath: copper (cathode, +0.34 V).
+    // rodRadius = 5 mm, rodLength = 100 mm, bath = 100 mm × 100 mm.
+    private static ImmersedRodGeometry CreateDefault() =>
+        new(GeometryFixtures.Anode, GeometryFixtures.Cathode,
+            rodRadius: 0.005, rodLength: 0.100, bathWidth: 0.100, bathHeight: 0.100);
+
+    [Fact]
+    public void Constructor_StoresProperties()
+    {
+        var g = CreateDefault();
+        Assert.Equal(GeometryFixtures.Anode,   g.RodMaterial);
+        Assert.Equal(GeometryFixtures.Cathode, g.BathMaterial);
+        Assert.Equal(0.005, g.RodRadius);
+        Assert.Equal(0.100, g.RodLength);
+        Assert.Equal(0.100, g.BathWidth);
+        Assert.Equal(0.100, g.BathHeight);
+    }
+
+    [Fact]
+    public void Constructor_ZincRod_IsAnode()
+    {
+        var g = CreateDefault();
+        Assert.Equal(MaterialRegistry.Zinc,   g.AnodeMaterial);
+        Assert.Equal(MaterialRegistry.Copper, g.CathodeMaterial);
+    }
+
+    [Fact]
+    public void Constructor_NobleBath_RodIsAnode()
+    {
+        // Zinc rod in copper bath → zinc is still anode (same arrangement).
+        var g = CreateDefault();
+        Assert.True(g.AnodeMaterial.StandardPotential < g.CathodeMaterial.StandardPotential);
+    }
+
+    [Fact]
+    public void Constructor_CopperRod_ZincBath_RodIsCathode()
+    {
+        var g = new ImmersedRodGeometry(
+            MaterialRegistry.Copper, MaterialRegistry.Zinc,
+            rodRadius: 0.005, rodLength: 0.100, bathWidth: 0.100, bathHeight: 0.100);
+
+        Assert.Equal(MaterialRegistry.Zinc,   g.AnodeMaterial);
+        Assert.Equal(MaterialRegistry.Copper, g.CathodeMaterial);
+    }
+
+    [Fact]
+    public void Constructor_RodTooLargeForBath_Throws()
+    {
+        // π × r² ≥ W × H → invalid
+        Assert.Throws<ArgumentException>(() =>
+            new ImmersedRodGeometry(
+                GeometryFixtures.Anode, GeometryFixtures.Cathode,
+                rodRadius: 0.100, rodLength: 0.100, bathWidth: 0.100, bathHeight: 0.100));
+    }
+
+    [Fact]
+    public void Constructor_SamePotentialMaterials_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new ImmersedRodGeometry(
+                MaterialRegistry.Zinc, MaterialRegistry.Zinc,
+                rodRadius: 0.005, rodLength: 0.100, bathWidth: 0.100, bathHeight: 0.100));
+    }
+
+    [Fact]
+    public void Constructor_NonPositiveRodRadius_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ImmersedRodGeometry(
+                GeometryFixtures.Anode, GeometryFixtures.Cathode,
+                rodRadius: 0.0, rodLength: 0.100, bathWidth: 0.100, bathHeight: 0.100));
+    }
+
+    [Fact]
+    public void Build_AnodeArea_Equals2PiRL()
+    {
+        var g = CreateDefault();
+        double expected = 2.0 * Math.PI * g.RodRadius * g.RodLength;
+        var cell = g.Build(GeometryFixtures.Electrolyte);
+        Assert.Equal(expected, cell.Anode.Area, precision: 10);
+    }
+
+    [Fact]
+    public void Build_CathodeArea_EqualsBathMinusRodFootprint()
+    {
+        var g = CreateDefault();
+        double expected = g.BathWidth * g.BathHeight - Math.PI * g.RodRadius * g.RodRadius;
+        var cell = g.Build(GeometryFixtures.Electrolyte);
+        Assert.Equal(expected, cell.Cathode.Area, precision: 10);
+    }
+
+    [Fact]
+    public void Build_NullElectrolyte_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CreateDefault().Build(null!));
+
+    [Fact]
+    public void BuildMesh_HasCorrectNodeCounts()
+    {
+        var mesh = CreateDefault().BuildMesh(10, 8);
+        Assert.Equal(10, mesh.NodesX);
+        Assert.Equal(8,  mesh.NodesY);
+    }
+
+    [Fact]
+    public void BuildMesh_CentreNode_IsInRodRegion()
+    {
+        // Use 11 nodes: centre at index 5, x = 0, y = 0 → inside rod.
+        var mesh = CreateDefault().BuildMesh(11, 11);
+        Assert.Equal(0, mesh.Regions[5, 5]); // rod = anode = region 0
+    }
+
+    [Fact]
+    public void BuildMesh_CornerNode_IsInBathRegion()
+    {
+        var mesh = CreateDefault().BuildMesh(20, 20);
+        Assert.Equal(1, mesh.Regions[0,  0]);
+        Assert.Equal(1, mesh.Regions[19, 19]);
+    }
+
+    [Fact]
+    public void BuildMesh_TooFewNodes_Throws() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CreateDefault().BuildMesh(nodesX: 1));
+}
+
+// ── OverlapJointGeometry tests ────────────────────────────────────────────────
+
+public class OverlapJointGeometryTests
+{
+    // Sheet-1: zinc (anode), sheet-2: copper (cathode).
+    // Overlap: 50 mm × 30 mm.
+    private static OverlapJointGeometry CreateDefault() =>
+        new(GeometryFixtures.Anode, GeometryFixtures.Cathode,
+            overlapWidth: 0.050, overlapLength: 0.030);
+
+    [Fact]
+    public void Constructor_StoresProperties()
+    {
+        var g = CreateDefault();
+        Assert.Equal(GeometryFixtures.Anode,   g.Material1);
+        Assert.Equal(GeometryFixtures.Cathode, g.Material2);
+        Assert.Equal(0.050, g.OverlapWidth);
+        Assert.Equal(0.030, g.OverlapLength);
+    }
+
+    [Fact]
+    public void Constructor_ZincMaterial1_IsAnode()
+    {
+        var g = CreateDefault();
+        Assert.Equal(MaterialRegistry.Zinc,   g.AnodeMaterial);
+        Assert.Equal(MaterialRegistry.Copper, g.CathodeMaterial);
+    }
+
+    [Fact]
+    public void Constructor_NobleMaterial1_BecomesCathode()
+    {
+        var g = new OverlapJointGeometry(
+            MaterialRegistry.Copper, MaterialRegistry.Zinc,
+            overlapWidth: 0.050, overlapLength: 0.030);
+
+        Assert.Equal(MaterialRegistry.Zinc,   g.AnodeMaterial);
+        Assert.Equal(MaterialRegistry.Copper, g.CathodeMaterial);
+    }
+
+    [Fact]
+    public void Constructor_SamePotentialMaterials_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new OverlapJointGeometry(
+                MaterialRegistry.Zinc, MaterialRegistry.Zinc,
+                overlapWidth: 0.050, overlapLength: 0.030));
+    }
+
+    [Fact]
+    public void Constructor_NonPositiveWidth_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new OverlapJointGeometry(
+                GeometryFixtures.Anode, GeometryFixtures.Cathode,
+                overlapWidth: 0.0, overlapLength: 0.030));
+    }
+
+    [Fact]
+    public void Build_AnodeAndCathodeAreas_EqualOverlapArea()
+    {
+        var g = CreateDefault();
+        double expected = g.OverlapWidth * g.OverlapLength;
+        var cell = g.Build(GeometryFixtures.Electrolyte);
+
+        Assert.Equal(expected, cell.Anode.Area,   precision: 10);
+        Assert.Equal(expected, cell.Cathode.Area, precision: 10);
+    }
+
+    [Fact]
+    public void Build_NullElectrolyte_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CreateDefault().Build(null!));
+
+    [Fact]
+    public void BuildMesh_HasCorrectNodeCounts()
+    {
+        var mesh = CreateDefault().BuildMesh(10, 6);
+        Assert.Equal(10, mesh.NodesX);
+        Assert.Equal(6,  mesh.NodesY);
+    }
+
+    [Fact]
+    public void BuildMesh_LeftSide_IsFirstSheetRegion()
+    {
+        var mesh = CreateDefault().BuildMesh(20, 5);
+        // x = 0 is on the left (sheet-1 = zinc = anode = region 0).
+        for (int j = 0; j < 5; j++)
+            Assert.Equal(0, mesh.Regions[0, j]);
+    }
+
+    [Fact]
+    public void BuildMesh_RightSide_IsSecondSheetRegion()
+    {
+        var mesh = CreateDefault().BuildMesh(20, 5);
+        // Rightmost node is on sheet-2 side (cathode = region 1).
+        for (int j = 0; j < 5; j++)
+            Assert.Equal(1, mesh.Regions[19, j]);
+    }
+
+    [Fact]
+    public void BuildMesh_XCoordinates_SpanOverlapWidth()
+    {
+        var g = CreateDefault();
+        var mesh = g.BuildMesh(11, 5);
+        Assert.Equal(0.0,           mesh.XCoordinates[0],  precision: 10);
+        Assert.Equal(g.OverlapWidth, mesh.XCoordinates[10], precision: 10);
+    }
+
+    [Fact]
+    public void BuildMesh_TooFewNodes_Throws() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CreateDefault().BuildMesh(nodesX: 1));
+}
+
+// ── Extended IGeometryBuilder contract (new geometry types) ──────────────────
+
+public class IGeometryBuilderContractExtendedTests
+{
+    private static IElectrolyte Env => GeometryFixtures.Electrolyte;
+
+    public static IEnumerable<object[]> NewBuilders()
+    {
+        yield return new object[]
+        {
+            new CoaxialCylinderGeometry(
+                MaterialRegistry.Zinc, MaterialRegistry.Copper,
+                innerRadius: 0.005, outerRadius: 0.020, length: 0.100)
+        };
+        yield return new object[]
+        {
+            new ImmersedRodGeometry(
+                MaterialRegistry.Zinc, MaterialRegistry.Copper,
+                rodRadius: 0.005, rodLength: 0.100, bathWidth: 0.100, bathHeight: 0.100)
+        };
+        yield return new object[]
+        {
+            new OverlapJointGeometry(
+                MaterialRegistry.Zinc, MaterialRegistry.Copper,
+                overlapWidth: 0.050, overlapLength: 0.030)
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(NewBuilders))]
+    public void AnodePotential_LowerThanCathodePotential(IGeometryBuilder builder)
+    {
+        Assert.True(
+            builder.AnodeMaterial.StandardPotential < builder.CathodeMaterial.StandardPotential);
+    }
+
+    [Theory]
+    [MemberData(nameof(NewBuilders))]
+    public void Build_ReturnsCellWithPositiveAreas(IGeometryBuilder builder)
+    {
+        var cell = builder.Build(Env);
+        Assert.True(cell.Anode.Area   > 0.0);
+        Assert.True(cell.Cathode.Area > 0.0);
+    }
+
+    [Theory]
+    [MemberData(nameof(NewBuilders))]
+    public void Build_GalvanicVoltage_IsPositive(IGeometryBuilder builder)
+    {
+        var cell = builder.Build(Env);
+        Assert.True(cell.GalvanicVoltage > 0.0);
+    }
+
+    [Theory]
+    [MemberData(nameof(NewBuilders))]
+    public void BuildMesh_RegionsContainOnlyValidValues(IGeometryBuilder builder)
+    {
+        var mesh = builder.BuildMesh(10, 10);
+        for (int i = 0; i < mesh.NodesX; i++)
+            for (int j = 0; j < mesh.NodesY; j++)
+                Assert.True(
+                    mesh.Regions[i, j] is 0 or 1,
+                    $"Unexpected region id {mesh.Regions[i, j]} at [{i},{j}].");
+    }
+
+    [Theory]
+    [MemberData(nameof(NewBuilders))]
+    public void BuildMesh_CoordinateArraysMatchRegionDimensions(IGeometryBuilder builder)
+    {
+        var mesh = builder.BuildMesh(8, 6);
+        Assert.Equal(mesh.NodesX, mesh.Regions.GetLength(0));
+        Assert.Equal(mesh.NodesY, mesh.Regions.GetLength(1));
+    }
+}

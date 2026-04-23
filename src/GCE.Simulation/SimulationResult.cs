@@ -24,4 +24,32 @@ public sealed class SimulationResult
     /// <see langword="true"/>; otherwise empty.
     /// </summary>
     public IReadOnlyList<ConvergenceInfo> ConvergenceHistory { get; init; } = [];
+
+    /// <summary>
+    /// Gets the per-node electrolyte potential field (V vs. SHE), flattened in
+    /// row-major order (index = i*NodesY + j). Populated only when a
+    /// <see cref="GeometryMesh"/> is provided via
+    /// <see cref="SimulationParameters.Mesh"/>.
+    /// </summary>
+    public double[]? NodalPotentials { get; init; }
+
+    /// <summary>
+    /// Gets the per-node corrosion rate (mm/year), flattened in row-major order.
+    /// Populated only when a <see cref="GeometryMesh"/> is provided.
+    /// </summary>
+    public double[]? NodalCorrosionRates { get; init; }
+
+    /// <summary>
+    /// Gets the per-step average concentration (mol/m³) for each tracked species,
+    /// keyed by species name. Each value list has one entry per simulation time
+    /// point. <see langword="null"/> when no species transport is configured.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<double>>? SpeciesConcentrationHistory { get; init; }
+
+    /// <summary>
+    /// Gets the pH at each simulation time point. Populated only when
+    /// <see cref="SimulationParameters.TrackpH"/> is <see langword="true"/>.
+    /// <see langword="null"/> otherwise.
+    /// </summary>
+    public IReadOnlyList<double>? pHHistory { get; init; }
 }

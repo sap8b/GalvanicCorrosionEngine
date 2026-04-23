@@ -1,3 +1,4 @@
+using GCE.Atmosphere;
 using GCE.Core;
 using GCE.Electrochemistry;
 
@@ -25,4 +26,9 @@ public sealed record SimulationParameters(
     double DurationSeconds,
     int TimeSteps = 1000,
     IWeatherProvider? WeatherProvider = null,
-    bool UseAdaptiveTimeStep = false);
+    bool UseAdaptiveTimeStep = false,
+    double PathLength = 0.0,
+    FilmEvolution? FilmEvolution = null,
+    GeometryMesh? Mesh = null,
+    IReadOnlyList<SpeciesTransport>? TrackedSpecies = null,
+    bool TrackpH = false);
