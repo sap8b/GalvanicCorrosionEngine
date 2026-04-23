@@ -182,6 +182,81 @@ var result = new SimulationEngine().Run(parameters);
 
 Custom materials can be added via `MaterialRegistry.Register(material)`.
 
+## Ohmic IR Drop Correction
+
+Set `PathLength` (metres) in `SimulationParameters` to model the ohmic resistance of the electrolyte path. When non-zero, a solution resistance `Rs = PathLength / κ` (Ω·m²) is computed at each step and the effective overpotential driving each electrode reaction is reduced accordingly.
+
+```csharp
+var parameters = new SimulationParameters(
+    new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+    new AtmosphericConditions(25.0, 0.80, 0.1),
+    DurationSeconds: 86400,
+    TimeSteps: 1000,
+    PathLength: 0.005);        // 5 mm electrolyte path
+```
+
+## Spatial Current-Density Distribution
+
+Supply a `GeometryMesh` via `SimulationParameters.Mesh` to activate the 2-D Laplace solver. After the time-integration loop completes, the engine solves ∇²φ = 0 on the mesh and computes the nodal current density and corrosion rate from Faraday's law. Results are stored in `SimulationResult.NodalPotentials` and `SimulationResult.NodalCorrosionRates`.
+
+```csharp
+var geometry = new SideBySideGeometry(
+    MaterialRegistry.Zinc, MaterialRegistry.Copper,
+    anodeWidth: 0.020, cathodeWidth: 0.020, length: 0.050);
+
+var parameters = new SimulationParameters(
+    new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+    new AtmosphericConditions(25.0, 0.80, 0.1),
+    DurationSeconds: 3600,
+    TimeSteps: 100,
+    Mesh: geometry.BuildMesh(20, 20));
+
+var result = new SimulationEngine().Run(parameters);
+// result.NodalPotentials     — V vs. SHE, flattened row-major
+// result.NodalCorrosionRates — mm/year, flattened row-major
+```
+
+## Species Transport Tracking
+
+Construct one or more `SpeciesTransport` objects and pass them in the `TrackedSpecies` list. At each simulation step the species concentration profiles are advanced by one diffusion step and the spatially-averaged concentration is written to `SimulationResult.SpeciesConcentrationHistory`.
+
+```csharp
+var chloride = new Species("Cl-", -1, diffusionCoefficient: 2.03e-9, concentration: 100.0);
+var transport = new SpeciesTransport(
+    chloride,
+    domainLength: 1e-4, gridPoints: 20,
+    initialProfile: Enumerable.Repeat(100.0, 20).ToArray(),
+    leftBC:  new DirichletBC(100.0),
+    rightBC: new DirichletBC(0.0),
+    timeStep: 36.0);
+
+var parameters = new SimulationParameters(
+    new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+    new AtmosphericConditions(25.0, 0.80, 0.1),
+    DurationSeconds: 3600,
+    TimeSteps: 100,
+    TrackedSpecies: [transport]);
+
+var result = new SimulationEngine().Run(parameters);
+// result.SpeciesConcentrationHistory["Cl-"] — one entry per time point
+```
+
+## pH Evolution Tracking
+
+Set `TrackpH = true` in `SimulationParameters` to enable pH tracking. The engine uses the net anodic current density at each step as a proxy for proton production and updates the bulk pH accordingly. Results are available in `SimulationResult.pHHistory`.
+
+```csharp
+var parameters = new SimulationParameters(
+    new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+    new AtmosphericConditions(25.0, 0.80, 0.1),
+    DurationSeconds: 86400,
+    TimeSteps: 1000,
+    TrackpH: true);
+
+var result = new SimulationEngine().Run(parameters);
+// result.pHHistory — one entry per time point
+```
+
 ## Next Steps
 
 - Read [ARCHITECTURE.md](ARCHITECTURE.md) for an overview of the library design

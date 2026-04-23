@@ -1,6 +1,7 @@
 using GCE.Atmosphere;
 using GCE.Core;
 using GCE.Electrochemistry;
+using GCE.Numerics.Solvers;
 using GCE.Simulation;
 
 namespace GCE.Simulation.Tests;
@@ -547,5 +548,289 @@ public class SimulationEngineTests
 
         Assert.Equal(11, result.TimePoints.Count);
         Assert.NotEmpty(result.ConvergenceHistory);
+    }
+}
+
+// ── OhmicDropTests ────────────────────────────────────────────────────────────
+
+public class OhmicDropTests
+{
+    private static readonly SimulationEngine Engine = new();
+
+    [Fact]
+    public void Run_WithZeroPathLength_ProducesSameStepCountAsBaseline()
+    {
+        var baseline = SimulationTestFixtures.DefaultParameters(durationSeconds: 360, timeSteps: 10);
+        var withOhmic = baseline with { PathLength = 0.0 };
+
+        var r1 = Engine.Run(baseline);
+        var r2 = Engine.Run(withOhmic);
+
+        Assert.Equal(r1.TimePoints.Count, r2.TimePoints.Count);
+    }
+
+    [Fact]
+    public void Run_WithNonZeroPathLength_SucceedsAndHasCorrectStepCount()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { PathLength = 0.005 };
+
+        var result = Engine.Run(parameters);
+
+        // 10 steps + initial point
+        Assert.Equal(11, result.TimePoints.Count);
+        Assert.Equal(11, result.MixedPotentials.Count);
+        Assert.Equal(11, result.CorrosionRates.Count);
+    }
+
+    [Fact]
+    public void Run_WithPathLength_CorrosionRatesAreNonNegative()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 3600, timeSteps: 50) with { PathLength = 0.010 };
+
+        var result = Engine.Run(parameters);
+
+        Assert.All(result.CorrosionRates, r => Assert.True(r >= 0.0));
+    }
+
+    [Fact]
+    public void Run_WithPathLength_MixedPotentialLiesBetweenStandardPotentials()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 1800, timeSteps: 30) with { PathLength = 0.010 };
+
+        var result = Engine.Run(parameters);
+
+        double anodeE   = MaterialRegistry.Zinc.StandardPotential;
+        double cathodeE = MaterialRegistry.Copper.StandardPotential;
+
+        foreach (double e in result.MixedPotentials)
+        {
+            Assert.True(e >= anodeE,   $"Potential {e:G4} is below anode OCP.");
+            Assert.True(e <= cathodeE, $"Potential {e:G4} is above cathode OCP.");
+        }
+    }
+
+    [Fact]
+    public void Run_HighPathLength_ReducesAverageCorrosionRateVsLowPathLength()
+    {
+        // A longer electrolyte path adds more ohmic resistance, which should
+        // reduce the net driving potential and therefore the corrosion rate.
+        var low  = SimulationTestFixtures.DefaultParameters(durationSeconds: 3600, timeSteps: 50)
+                        with { PathLength = 1e-6 };
+        var high = SimulationTestFixtures.DefaultParameters(durationSeconds: 3600, timeSteps: 50)
+                        with { PathLength = 1.0 };
+
+        double avgLow  = Engine.Run(low).AverageCorrosionRate;
+        double avgHigh = Engine.Run(high).AverageCorrosionRate;
+
+        Assert.True(avgHigh <= avgLow,
+            $"High-resistance run ({avgHigh:G4}) should not exceed low-resistance run ({avgLow:G4}).");
+    }
+}
+
+// ── SpatialDistributionTests ──────────────────────────────────────────────────
+
+public class SpatialDistributionTests
+{
+    private static readonly SimulationEngine Engine = new();
+
+    private static GeometryMesh TinyMesh()
+    {
+        var regions = new int[5, 5];
+        for (int i = 0; i < 5; i++)
+            for (int j = 0; j < 5; j++)
+                regions[i, j] = i < 3 ? 0 : 1; // left = anode, right = cathode
+        return new GeometryMesh(
+            XCoordinates: [0.0, 0.025, 0.050, 0.075, 0.100],
+            YCoordinates: [0.0, 0.025, 0.050, 0.075, 0.100],
+            Regions: regions);
+    }
+
+    [Fact]
+    public void Run_WithMesh_PopulatesNodalPotentials()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { Mesh = TinyMesh() };
+
+        var result = Engine.Run(parameters);
+
+        Assert.NotNull(result.NodalPotentials);
+        Assert.Equal(25, result.NodalPotentials!.Length); // 5×5 = 25 nodes
+    }
+
+    [Fact]
+    public void Run_WithMesh_PopulatesNodalCorrosionRates()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { Mesh = TinyMesh() };
+
+        var result = Engine.Run(parameters);
+
+        Assert.NotNull(result.NodalCorrosionRates);
+        Assert.Equal(25, result.NodalCorrosionRates!.Length);
+    }
+
+    [Fact]
+    public void Run_WithMesh_NodalCorrosionRatesAreNonNegative()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { Mesh = TinyMesh() };
+
+        var result = Engine.Run(parameters);
+
+        Assert.All(result.NodalCorrosionRates!, r => Assert.True(r >= 0.0));
+    }
+
+    [Fact]
+    public void Run_WithMesh_NodalPotentialsContainFiniteValues()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { Mesh = TinyMesh() };
+
+        var result = Engine.Run(parameters);
+
+        Assert.All(result.NodalPotentials!, v => Assert.True(double.IsFinite(v)));
+    }
+
+    [Fact]
+    public void Run_WithoutMesh_NodalPropertiesAreNull()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters();
+
+        var result = Engine.Run(parameters);
+
+        Assert.Null(result.NodalPotentials);
+        Assert.Null(result.NodalCorrosionRates);
+    }
+}
+
+// ── SpeciesTransportSimulationTests ──────────────────────────────────────────
+
+public class SpeciesTransportSimulationTests
+{
+    private static readonly SimulationEngine Engine = new();
+
+    private static SpeciesTransport CreateChlorideTransport()
+    {
+        var cl = new Species("Cl-", -1, diffusionCoefficient: 2.03e-9, concentration: 100.0);
+        var leftBC  = new DirichletBC(100.0);
+        var rightBC = new DirichletBC(100.0);
+        return new SpeciesTransport(cl, domainLength: 1e-4, gridPoints: 5,
+            initialProfile: [100.0, 100.0, 100.0, 100.0, 100.0],
+            leftBC: leftBC, rightBC: rightBC, timeStep: 1.0);
+    }
+
+    [Fact]
+    public void Run_WithTrackedSpecies_PopulatesSpeciesConcentrationHistory()
+    {
+        var st = CreateChlorideTransport();
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10)
+            with { TrackedSpecies = [st] };
+
+        var result = Engine.Run(parameters);
+
+        Assert.NotNull(result.SpeciesConcentrationHistory);
+        Assert.True(result.SpeciesConcentrationHistory!.ContainsKey("Cl-"));
+    }
+
+    [Fact]
+    public void Run_WithTrackedSpecies_HistoryHasCorrectEntryCount()
+    {
+        var st = CreateChlorideTransport();
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10)
+            with { TrackedSpecies = [st] };
+
+        var result = Engine.Run(parameters);
+
+        // Initial point + 10 steps = 11 entries.
+        Assert.Equal(11, result.SpeciesConcentrationHistory!["Cl-"].Count);
+    }
+
+    [Fact]
+    public void Run_WithTrackedSpecies_ConcentrationsAreNonNegative()
+    {
+        var st = CreateChlorideTransport();
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10)
+            with { TrackedSpecies = [st] };
+
+        var result = Engine.Run(parameters);
+
+        Assert.All(result.SpeciesConcentrationHistory!["Cl-"], c => Assert.True(c >= 0.0));
+    }
+
+    [Fact]
+    public void Run_WithoutTrackedSpecies_SpeciesConcentrationHistoryIsNull()
+    {
+        var result = Engine.Run(SimulationTestFixtures.DefaultParameters());
+
+        Assert.Null(result.SpeciesConcentrationHistory);
+    }
+}
+
+// ── pHTrackingTests ───────────────────────────────────────────────────────────
+
+public class pHTrackingTests
+{
+    private static readonly SimulationEngine Engine = new();
+
+    [Fact]
+    public void Run_WithTrackpH_PopulatespHHistory()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { TrackpH = true };
+
+        var result = Engine.Run(parameters);
+
+        Assert.NotNull(result.pHHistory);
+    }
+
+    [Fact]
+    public void Run_WithTrackpH_HistoryHasCorrectEntryCount()
+    {
+        int steps = 10;
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: steps) with { TrackpH = true };
+
+        var result = Engine.Run(parameters);
+
+        // Initial pH + one per step = steps + 1 total
+        Assert.Equal(steps + 1, result.pHHistory!.Count);
+    }
+
+    [Fact]
+    public void Run_WithTrackpH_AllValuesAreFinite()
+    {
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { TrackpH = true };
+
+        var result = Engine.Run(parameters);
+
+        Assert.All(result.pHHistory!, v => Assert.True(double.IsFinite(v)));
+    }
+
+    [Fact]
+    public void Run_WithoutTrackpH_pHHistoryIsNull()
+    {
+        var result = Engine.Run(SimulationTestFixtures.DefaultParameters());
+
+        Assert.Null(result.pHHistory);
+    }
+
+    [Fact]
+    public void Run_WithTrackpH_InitialValueMatchesEnvironmentpH()
+    {
+        var env = new AtmosphericConditions(25.0, 0.75, 0.1);
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 360, timeSteps: 10) with { TrackpH = true };
+
+        var result = Engine.Run(parameters);
+
+        // First entry should be the initial pH of the environment.
+        Assert.Equal(env.pH, result.pHHistory![0], precision: 6);
     }
 }

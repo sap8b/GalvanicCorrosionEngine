@@ -113,4 +113,19 @@ public sealed class OxygenReductionReaction : IElectrochemicalReaction
         double eta = potential - EquilibriumPotential;
         return _kinetics.CurrentDensity(eta);
     }
+
+    /// <summary>
+    /// Returns a new <see cref="OxygenReductionReaction"/> with the same kinetic parameters
+    /// but a different pH value (for step-by-step pH evolution).
+    /// </summary>
+    /// <param name="newpH">The updated pH value.</param>
+    public OxygenReductionReaction WithpH(double newpH) =>
+        new(_kinetics.ExchangeCurrentDensity,
+            newpH,
+            OxygenPartialPressure,
+            Pathway,
+            _kinetics.AnodicTransferCoefficient,
+            _kinetics.CathodicTransferCoefficient,
+            _kinetics.TemperatureKelvin,
+            _kinetics.LimitingCurrentDensity);
 }

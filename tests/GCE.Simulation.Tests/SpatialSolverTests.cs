@@ -1,0 +1,136 @@
+using GCE.Atmosphere;
+using GCE.Core;
+using GCE.Electrochemistry;
+using GCE.Simulation;
+using GCE.Simulation.Geometry;
+
+namespace GCE.Simulation.Tests;
+
+/// <summary>
+/// Tests for the spatial potential solver exercised through
+/// <see cref="SimulationEngine"/> with a <see cref="GeometryMesh"/>.
+/// </summary>
+/// <remarks>
+/// <see cref="SpatialSolver"/> is an <c>internal</c> helper; its behaviour is
+/// verified indirectly via the public <see cref="SimulationEngine"/> API.
+/// </remarks>
+public class SpatialSolverTests
+{
+    private static readonly SimulationEngine Engine = new();
+
+    // 5×5 mesh: nodes 0–2 in x are the anode region (0), nodes 3–4 are cathode (1).
+    private static GeometryMesh FiveFiveMesh()
+    {
+        var regions = new int[5, 5];
+        for (int i = 0; i < 5; i++)
+            for (int j = 0; j < 5; j++)
+                regions[i, j] = i <= 2 ? 0 : 1;
+
+        return new GeometryMesh(
+            XCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
+            YCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
+            Regions: regions);
+    }
+
+    private static SimulationParameters MakeParams(GeometryMesh mesh) =>
+        new SimulationParameters(
+            new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+            new AtmosphericConditions(25.0, 0.75, 0.1),
+            DurationSeconds: 360,
+            TimeSteps: 10,
+            Mesh: mesh);
+
+    [Fact]
+    public void Run_WithMesh_NodalPotentialsLengthMatchesMeshNodeCount()
+    {
+        var mesh = FiveFiveMesh();
+        var result = Engine.Run(MakeParams(mesh));
+
+        Assert.NotNull(result.NodalPotentials);
+        Assert.Equal(mesh.NodesX * mesh.NodesY, result.NodalPotentials!.Length);
+    }
+
+    [Fact]
+    public void Run_WithMesh_NodalCorrosionRatesLengthMatchesMeshNodeCount()
+    {
+        var mesh = FiveFiveMesh();
+        var result = Engine.Run(MakeParams(mesh));
+
+        Assert.NotNull(result.NodalCorrosionRates);
+        Assert.Equal(mesh.NodesX * mesh.NodesY, result.NodalCorrosionRates!.Length);
+    }
+
+    [Fact]
+    public void Run_WithMesh_NodalPotentialsAreFinite()
+    {
+        var result = Engine.Run(MakeParams(FiveFiveMesh()));
+
+        Assert.All(result.NodalPotentials!, v => Assert.True(double.IsFinite(v)));
+    }
+
+    [Fact]
+    public void Run_WithMesh_NodalCorrosionRatesAreNonNegative()
+    {
+        var result = Engine.Run(MakeParams(FiveFiveMesh()));
+
+        Assert.All(result.NodalCorrosionRates!, r => Assert.True(r >= 0.0, $"Rate {r} is negative."));
+    }
+
+    [Fact]
+    public void Run_WithGeometryBuilder_MeshProducesNodalResults()
+    {
+        // Build a mesh from SideBySideGeometry and pass it to the engine.
+        var g = new SideBySideGeometry(
+            MaterialRegistry.Zinc, MaterialRegistry.Copper,
+            anodeWidth: 0.020, cathodeWidth: 0.020, length: 0.050);
+        var mesh = g.BuildMesh(6, 4);
+
+        var parameters = new SimulationParameters(
+            new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+            new AtmosphericConditions(25.0, 0.75, 0.1),
+            DurationSeconds: 360,
+            TimeSteps: 5,
+            Mesh: mesh);
+
+        var result = Engine.Run(parameters);
+
+        Assert.NotNull(result.NodalPotentials);
+        Assert.Equal(mesh.NodesX * mesh.NodesY, result.NodalPotentials!.Length);
+    }
+
+    [Fact]
+    public void Run_WithoutMesh_NodalResultsAreNull()
+    {
+        var parameters = new SimulationParameters(
+            new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+            new AtmosphericConditions(25.0, 0.75, 0.1),
+            DurationSeconds: 360,
+            TimeSteps: 5);
+
+        var result = Engine.Run(parameters);
+
+        Assert.Null(result.NodalPotentials);
+        Assert.Null(result.NodalCorrosionRates);
+    }
+
+    [Fact]
+    public void Run_LargerMesh_HasExpectedNodeCount()
+    {
+        var g = new BoltInPlateGeometry(
+            MaterialRegistry.Zinc, MaterialRegistry.Copper,
+            boltRadius: 0.005, plateThickness: 0.010, plateWidth: 0.050);
+        var mesh = g.BuildMesh(10, 10);
+
+        var parameters = new SimulationParameters(
+            new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+            new AtmosphericConditions(25.0, 0.75, 0.1),
+            DurationSeconds: 360,
+            TimeSteps: 5,
+            Mesh: mesh);
+
+        var result = Engine.Run(parameters);
+
+        Assert.Equal(100, result.NodalPotentials!.Length); // 10×10
+        Assert.Equal(100, result.NodalCorrosionRates!.Length);
+    }
+}
