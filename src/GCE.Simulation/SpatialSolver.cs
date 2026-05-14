@@ -461,7 +461,8 @@ internal static class SpatialSolver
             double h     = kFace / delta;
             double denom = h + J;
 
-            // denom = h + J; J ≥ 0 always, h > 0 always → denom > 0.
+            // h > 0 and J ≥ 0 in all physically valid cases; the guard below
+            // defends against degenerate numerics (e.g. zero conductivity).
             if (denom <= 0.0)
             {
                 sum += phiCurrent;
