@@ -48,6 +48,12 @@ public sealed class LaplaceSolver2D : IPDESolver
     /// guess for the iterative solver.  When <see langword="null"/> the
     /// solution is initialised to zero (Dirichlet nodes are overwritten).
     /// </param>
+    /// <param name="conductivityMap">
+    /// Optional flat array (row-major, length nx·ny) of positive nodal
+    /// conductivities κ(x,y) for the variable-coefficient Laplace equation
+    /// ∇·(κ∇u) = 0.  When <see langword="null"/> a uniform conductivity of 1 is
+    /// assumed everywhere.
+    /// </param>
     /// <param name="omega">
     /// SOR relaxation parameter ω ∈ [1, 2].  ω = 1 gives standard
     /// Gauss–Seidel; values up to 2 provide successive over-relaxation.
@@ -71,6 +77,7 @@ public sealed class LaplaceSolver2D : IPDESolver
         IBoundaryCondition   bottomBC,
         IBoundaryCondition   topBC,
         double[]?            initialGuess = null,
+        double[]?            conductivityMap = null,
         double               omega        = 1.0)
     {
         _inner = new PoissonSolver2D(
@@ -78,6 +85,7 @@ public sealed class LaplaceSolver2D : IPDESolver
             leftBC, rightBC, bottomBC, topBC,
             source:       (_, _) => 0.0,
             initialGuess: initialGuess,
+            conductivityMap: conductivityMap,
             omega:        omega);
     }
 

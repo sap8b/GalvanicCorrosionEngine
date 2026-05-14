@@ -5,8 +5,8 @@ namespace GCE.Simulation;
 
 /// <summary>
 /// Computes the steady-state spatial distribution of electrolyte potential and
-/// corrosion rate on a <see cref="GeometryMesh"/> by solving the 2-D Laplace
-/// equation ∇²φ = 0.
+/// corrosion rate on a <see cref="GeometryMesh"/> by solving the variable-
+/// conductivity 2-D Laplace equation ∇·(κ∇φ) = 0.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,10 +25,13 @@ namespace GCE.Simulation;
 internal static class SpatialSolver
 {
     private const double SecondsPerYear = 3.156e7;
+    private const double MetalConductivity = 1.0e6;
+    private const double CorrosionProductConductivityRatio = 1.0e-2;
+    private const double MinimumCorrosionProductConductivity = 1.0e-6;
 
     /// <summary>
-    /// Solves the Laplace equation on <paramref name="mesh"/> and returns the
-    /// nodal potential field and nodal corrosion rates.
+    /// Solves the variable-conductivity Laplace equation on <paramref name="mesh"/>
+    /// and returns the nodal potential field and nodal corrosion rates.
     /// </summary>
     /// <param name="mesh">The spatial mesh to solve on.</param>
     /// <param name="anodePotential">
@@ -70,9 +73,12 @@ internal static class SpatialSolver
         var bottomBC = new NeumannBC(0.0);
         var topBC    = new NeumannBC(0.0);
 
+        double[] conductivityMap = BuildConductivityMap(mesh, ionicConductivity);
+
         var solver = new LaplaceSolver2D(
             nx, ny, lx, ly,
             leftBC, rightBC, bottomBC, topBC,
+            conductivityMap: conductivityMap,
             omega: 1.5);
 
         var result = solver.Solve(new PdeSolverOptions { MaxIterations = 2000, Tolerance = 1e-8 });
@@ -103,7 +109,7 @@ internal static class SpatialSolver
                 else
                     dphiDx = (phi[(i + 1) * ny + j] - phi[(i - 1) * ny + j]) / (2.0 * dx);
 
-                double currentDensity = -ionicConductivity * dphiDx; // A/m²
+                double currentDensity = -conductivityMap[idx] * dphiDx; // A/m²
 
                 // Faraday's law: rate (mm/year) = |i| × M / (n × F × ρ) × seconds_per_year × 1000
                 nodalCorrosionRates[idx] = Math.Abs(currentDensity) * M
@@ -113,5 +119,32 @@ internal static class SpatialSolver
         }
 
         return (nodalPotentials, nodalCorrosionRates);
+    }
+
+    private static double[] BuildConductivityMap(GeometryMesh mesh, double ionicConductivity)
+    {
+        int nx = mesh.NodesX;
+        int ny = mesh.NodesY;
+        double electrolyteConductivity = ionicConductivity > 0.0 ? ionicConductivity : 1e-3;
+        double corrosionProductConductivity =
+            Math.Max(electrolyteConductivity * CorrosionProductConductivityRatio,
+                     MinimumCorrosionProductConductivity);
+
+        double[] conductivityMap = new double[nx * ny];
+        for (int i = 0; i < nx; i++)
+        {
+            for (int j = 0; j < ny; j++)
+            {
+                int idx = i * ny + j;
+                conductivityMap[idx] = mesh.Regions[i, j] switch
+                {
+                    NodePhase.Anode or NodePhase.Cathode => MetalConductivity,
+                    NodePhase.CorrosionProduct => corrosionProductConductivity,
+                    _ => electrolyteConductivity,
+                };
+            }
+        }
+
+        return conductivityMap;
     }
 }
