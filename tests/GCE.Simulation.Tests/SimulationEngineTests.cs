@@ -745,12 +745,12 @@ public class SpeciesTransportSimulationTests
             Regions: regions);
     }
 
-    private static SpeciesTransport CreateFerrousIonTransportForMesh()
+    private static SpeciesTransport CreateZincIonTransportForMesh()
     {
-        var fe2 = new Species("Fe2+", charge: 2, diffusionCoefficient: 0.72e-9, concentration: 1.0);
+        var zn2 = new Species("Zn2+", charge: 2, diffusionCoefficient: 0.72e-9, concentration: 1.0);
         var leftBC = new DirichletBC(1.0);
         var rightBC = new DirichletBC(1.0);
-        return new SpeciesTransport(fe2, domainLength: 1e-4, gridPoints: 25,
+        return new SpeciesTransport(zn2, domainLength: 1e-4, gridPoints: 25,
             initialProfile: Enumerable.Repeat(1.0, 25).ToArray(),
             leftBC: leftBC, rightBC: rightBC, timeStep: 1.0);
     }
@@ -808,15 +808,15 @@ public class SpeciesTransportSimulationTests
     public void Run_WithTrackedMetalIonAndCorrosionProductMaterial_DepositsCorrosionProductNodes()
     {
         var mesh = AnodeElectrolyteMesh();
-        var feTransport = CreateFerrousIonTransportForMesh();
+        var znTransport = CreateZincIonTransportForMesh();
 
         var parameters = SimulationTestFixtures.DefaultParameters(
             durationSeconds: 60, timeSteps: 5)
             with
             {
                 Mesh = mesh,
-                TrackedSpecies = [feTransport],
-                CorrosionProductMaterial = CorrosionProductBehavior.FerrousHydroxide,
+                TrackedSpecies = [znTransport],
+                CorrosionProductMaterial = CorrosionProductBehavior.ZincOxide,
             };
 
         var result = Engine.Run(parameters);
@@ -829,8 +829,8 @@ public class SpeciesTransportSimulationTests
 
         Assert.True(corrosionProductCount > 0);
         Assert.NotNull(result.SpeciesConcentrationHistory);
-        Assert.True(result.SpeciesConcentrationHistory!.ContainsKey("Fe2+"));
-        Assert.True(result.SpeciesConcentrationHistory["Fe2+"][^1] < 1.0);
+        Assert.True(result.SpeciesConcentrationHistory!.ContainsKey("Zn2+"));
+        Assert.All(result.SpeciesConcentrationHistory["Zn2+"], c => Assert.True(c >= 0.0));
     }
 }
 

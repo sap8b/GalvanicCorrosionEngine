@@ -202,10 +202,25 @@ public sealed class SpeciesTransport
 
                 int adjacentAnodes = 0;
                 double adjacentRateSum = 0.0;
-                AccumulateAdjacentAnodeRate(i - 1, j);
-                AccumulateAdjacentAnodeRate(i + 1, j);
-                AccumulateAdjacentAnodeRate(i, j - 1);
-                AccumulateAdjacentAnodeRate(i, j + 1);
+                Span<(int X, int Y)> neighbors =
+                [
+                    (i - 1, j),
+                    (i + 1, j),
+                    (i, j - 1),
+                    (i, j + 1),
+                ];
+
+                foreach (var (x, y) in neighbors)
+                {
+                    if (x < 0 || x >= mesh.NodesX || y < 0 || y >= mesh.NodesY)
+                        continue;
+                    if (mesh.Regions[x, y] != NodePhase.Anode)
+                        continue;
+
+                    int neighborIndex = x * mesh.NodesY + y;
+                    adjacentRateSum += Math.Max(0.0, nodalCorrosionRates[neighborIndex]);
+                    adjacentAnodes++;
+                }
 
                 if (adjacentAnodes > 0)
                 {
@@ -254,18 +269,6 @@ public sealed class SpeciesTransport
         }
 
         return anyDeposited;
-
-        void AccumulateAdjacentAnodeRate(int x, int y)
-        {
-            if (x < 0 || x >= mesh.NodesX || y < 0 || y >= mesh.NodesY)
-                return;
-            if (mesh.Regions[x, y] != NodePhase.Anode)
-                return;
-
-            int neighborIndex = x * mesh.NodesY + y;
-            adjacentRateSum += Math.Max(0.0, nodalCorrosionRates[neighborIndex]);
-            adjacentAnodes++;
-        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
