@@ -29,7 +29,8 @@ namespace GCE.Electrochemistry;
 /// </remarks>
 public sealed class SpeciesTransport
 {
-    private const double SecondsPerYear = 3.156e7;
+    // 365.25 d × 86,400 s/d.
+    private const double ApproximateSecondsPerYear = 3.15576e7;
 
     private DiffusionSolver1D _solver;
     private double[] _profile;
@@ -226,7 +227,8 @@ public sealed class SpeciesTransport
                 {
                     double averageAdjacentRate = adjacentRateSum / adjacentAnodes;
                     double generatedConcentration =
-                        averageAdjacentRate / (SecondsPerYear * 1000.0)
+                        // rate(mm/yr) / (s/yr * 1000 mm/m) -> m/s, then ×ρ/M -> mol/(m³·s), then ×dt -> mol/m³.
+                        averageAdjacentRate / (ApproximateSecondsPerYear * 1000.0)
                         * anodeMaterial.Density
                         / anodeMaterial.MolarMass
                         * dt;

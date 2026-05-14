@@ -567,6 +567,7 @@ public sealed class SimulationEngine : ISimulationRunner
 
     private static int InferHydroxideStoichiometry(string corrosionProductName)
     {
+        // Heuristic fallback based on formula-like names (e.g., Fe(OH)2).
         int marker = corrosionProductName.IndexOf("(OH)", StringComparison.OrdinalIgnoreCase);
         if (marker < 0)
             return 1;
@@ -584,7 +585,7 @@ public sealed class SimulationEngine : ISimulationRunner
 
     private static double ComputeHydroxideActivity(double pH)
     {
-        // [OH-] = 10^(pH-14) mol/L; convert to mol/m³ for consistency with species concentration.
+        // [OH-] = 10^(pH-14) mol/L; multiply by 1000 because 1 L = 1e-3 m³, so mol/L = 1000·mol/m³.
         double hydroxideMolPerLiter = Math.Pow(10.0, pH - 14.0);
         return Math.Max(hydroxideMolPerLiter * 1000.0, 0.0);
     }
