@@ -41,4 +41,11 @@ public sealed class SimulationState
     /// Gets the corrosion rates (mm/year) at each recorded time point.
     /// </summary>
     public IReadOnlyList<double> CorrosionRates { get; init; } = [];
+
+    /// <summary>
+    /// Gets the per-node cumulative dissolved mass (kg per unit depth) accumulated up to and
+    /// including the snapshot, flattened in row-major order (index = i*NodesY + j).
+    /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public double[]? NodeMassLoss { get; init; }
 }
