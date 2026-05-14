@@ -52,4 +52,11 @@ public sealed class SimulationResult
     /// <see langword="null"/> otherwise.
     /// </summary>
     public IReadOnlyList<double>? pHHistory { get; init; }
+
+    /// <summary>
+    /// Gets the per-node cumulative dissolved mass (kg per unit depth) at the end of the
+    /// simulation, flattened in row-major order (index = i*NodesY + j).
+    /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public double[]? NodeMassLoss { get; init; }
 }

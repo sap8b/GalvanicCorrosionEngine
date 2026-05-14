@@ -32,6 +32,9 @@ public sealed class SimulationEngine : ISimulationRunner
     /// An adaptive step is clamped to at most <c>nominalDt × MaxAdaptiveStepMultiplier</c>.
     /// </summary>
     private const double MaxAdaptiveStepMultiplier = 4.0;
+
+    /// <summary>Approximate seconds per Julian year (365.25 d × 86 400 s/d), used for mass-loss calculations.</summary>
+    private const double SecondsPerYear = 3.156e7;
     /// <summary>
     /// Runs a galvanic corrosion simulation synchronously and returns the full result.
     /// </summary>
@@ -52,6 +55,7 @@ public sealed class SimulationEngine : ISimulationRunner
             priorTimes:       [],
             priorPotentials:  [],
             priorRates:       [],
+            priorNodeMassLoss: null,
             parameters:       parameters,
             progress:         null,
             checkpoint:       out _,
@@ -83,6 +87,7 @@ public sealed class SimulationEngine : ISimulationRunner
             priorTimes:       [],
             priorPotentials:  [],
             priorRates:       [],
+            priorNodeMassLoss: null,
             parameters:       parameters,
             progress:         progress,
             checkpoint:       out checkpoint,
@@ -110,6 +115,7 @@ public sealed class SimulationEngine : ISimulationRunner
             priorTimes:       checkpoint.TimePoints,
             priorPotentials:  checkpoint.MixedPotentials,
             priorRates:       checkpoint.CorrosionRates,
+            priorNodeMassLoss: checkpoint.NodeMassLoss,
             parameters:       parameters,
             progress:         progress,
             checkpoint:       out _,
@@ -129,6 +135,7 @@ public sealed class SimulationEngine : ISimulationRunner
         IReadOnlyList<double>          priorTimes,
         IReadOnlyList<double>          priorPotentials,
         IReadOnlyList<double>          priorRates,
+        double[]?                      priorNodeMassLoss,
         SimulationParameters           parameters,
         IProgress<SimulationProgress>? progress,
         out SimulationState?           checkpoint,
@@ -170,6 +177,18 @@ public sealed class SimulationEngine : ISimulationRunner
             pHList = new List<double>();
         }
 
+        // Per-node cumulative mass-loss bookkeeping (only when a mesh is provided).
+        double[]? nodeMassLoss = null;
+        double[]? lastNodalPotentials     = null;
+        double[]? lastNodalCorrosionRates = null;
+        if (parameters.Mesh is not null)
+        {
+            int nodeCount = parameters.Mesh.NodesX * parameters.Mesh.NodesY;
+            nodeMassLoss = priorNodeMassLoss?.Length == nodeCount
+                ? (double[])priorNodeMassLoss.Clone()
+                : new double[nodeCount];
+        }
+
         // Include the initial point when starting fresh (startStep == 0).
         if (startStep == 0)
         {
@@ -201,6 +220,7 @@ public sealed class SimulationEngine : ISimulationRunner
                     TimePoints       = times.AsReadOnly(),
                     MixedPotentials  = potentials.AsReadOnly(),
                     CorrosionRates   = rates.AsReadOnly(),
+                    NodeMassLoss     = nodeMassLoss is not null ? (double[])nodeMassLoss.Clone() : null,
                 };
                 break;
             }
@@ -237,6 +257,29 @@ public sealed class SimulationEngine : ISimulationRunner
 
             t += currentDt;
 
+            // Per-step spatial solve: update nodal potentials, corrosion rates, and
+            // accumulate dissolved mass for each Anode node.
+            if (parameters.Mesh is not null && nodeMassLoss is not null)
+            {
+                var   envSpatial    = GetEnvironmentAt(parameters, t);
+                double kappaSpatial = envSpatial.IonicConductivity > 0 ? envSpatial.IonicConductivity : 1e-3;
+
+                (lastNodalPotentials, lastNodalCorrosionRates) = SpatialSolver.Solve(
+                    parameters.Mesh,
+                    parameters.Pair.Anode.StandardPotential,
+                    parameters.Pair.Cathode.StandardPotential,
+                    kappaSpatial,
+                    parameters.Pair.Anode,
+                    parameters.CorrosionProductMaterial);
+
+                AccumulateNodeMassLoss(
+                    parameters.Mesh,
+                    nodeMassLoss,
+                    lastNodalCorrosionRates,
+                    currentDt,
+                    parameters.Pair.Anode);
+            }
+
             double rate = ComputeCorrosionRate(parameters, t, potential);
             times.Add(t);
             potentials.Add(potential);
@@ -269,12 +312,12 @@ public sealed class SimulationEngine : ISimulationRunner
 
         checkpoint = capturedCheckpoint;
 
-        // Spatial solve at the final mixed potential if a mesh was provided.
-        double[]? nodalPotentials    = null;
-        double[]? nodalCorrosionRates = null;
-        if (parameters.Mesh is not null && potentials.Count > 0)
+        // Use the last per-step spatial-solve result; fall back to a single solve when
+        // no loop iterations ran (e.g. TimeSteps == 0) but a mesh was supplied.
+        double[]? nodalPotentials    = lastNodalPotentials;
+        double[]? nodalCorrosionRates = lastNodalCorrosionRates;
+        if (nodalPotentials is null && parameters.Mesh is not null && potentials.Count > 0)
         {
-            double finalE  = potentials[^1];
             double anodeE  = parameters.Pair.Anode.StandardPotential;
             double cathodeE = parameters.Pair.Cathode.StandardPotential;
             var    lastEnv  = GetEnvironmentAt(parameters, times.Count > 0 ? times[^1] : 0.0);
@@ -308,7 +351,8 @@ public sealed class SimulationEngine : ISimulationRunner
             NodalPotentials      = nodalPotentials,
             NodalCorrosionRates  = nodalCorrosionRates,
             SpeciesConcentrationHistory = speciesConcentrationHistory,
-            pHHistory = pHList?.AsReadOnly(),
+            pHHistory            = pHList?.AsReadOnly(),
+            NodeMassLoss         = nodeMassLoss,
         };
 
         return Task.FromResult(result);
@@ -399,5 +443,63 @@ public sealed class SimulationEngine : ISimulationRunner
             return new WeatherDrivenAtmosphericConditions(obs);
         }
         return parameters.Environment;
+    }
+
+    /// <summary>
+    /// Accumulates per-node dissolved mass for each <see cref="NodePhase.Anode"/> node and
+    /// transitions fully dissolved nodes to <see cref="NodePhase.Electrolyte"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The incremental mass loss for node (i, j) over time step <paramref name="dt"/> is:
+    /// <code>
+    /// Δmass = rate_mm_yr / (1000 × s_per_yr) × ρ × A_node × Δt
+    /// </code>
+    /// where <c>rate_mm_yr</c> is the nodal corrosion rate from <see cref="SpatialSolver"/>,
+    /// <c>ρ</c> is the anode material density, and <c>A_node = dx × dy</c> is the nodal
+    /// cell area (per unit depth).
+    /// </para>
+    /// <para>
+    /// A node is considered fully dissolved when its cumulative mass loss reaches or
+    /// exceeds <c>ρ × V_node = ρ × dx × dy</c> (per unit depth), at which point its
+    /// phase is set to <see cref="NodePhase.Electrolyte"/>.
+    /// </para>
+    /// </remarks>
+    private static void AccumulateNodeMassLoss(
+        GeometryMesh mesh,
+        double[]     nodeMassLoss,
+        double[]     nodalCorrosionRates,
+        double       dt,
+        IMaterial    anodeMaterial)
+    {
+        int nx = mesh.NodesX;
+        int ny = mesh.NodesY;
+
+        // Assume a uniform rectilinear grid: node spacing is the total span divided by
+        // the number of intervals.  Non-uniform meshes are not currently supported and
+        // would require per-node area calculations using adjacent coordinate differences.
+        double dx = nx > 1 ? (mesh.XCoordinates[nx - 1] - mesh.XCoordinates[0]) / (nx - 1) : 1.0;
+        double dy = ny > 1 ? (mesh.YCoordinates[ny - 1] - mesh.YCoordinates[0]) / (ny - 1) : 1.0;
+        double aNode     = dx * dy;                        // nodal cell area (m²)
+        double threshold = anodeMaterial.Density * aNode;  // ρ × V_node per unit depth (kg/m)
+
+        for (int i = 0; i < nx; i++)
+        {
+            for (int j = 0; j < ny; j++)
+            {
+                if (mesh.Regions[i, j] != NodePhase.Anode)
+                    continue;
+
+                int    idx       = i * ny + j;
+                // Δmass = rate_m/s × ρ × A_node × Δt  (derived from Faraday's law via the
+                // corrosion-rate formula in SpatialSolver, cancelling n, F, and M).
+                double deltaMass = nodalCorrosionRates[idx] / (SecondsPerYear * 1000.0)
+                                   * anodeMaterial.Density * aNode * dt;
+                nodeMassLoss[idx] += deltaMass;
+
+                if (nodeMassLoss[idx] >= threshold)
+                    mesh.Regions[i, j] = NodePhase.Electrolyte;
+            }
+        }
     }
 }
