@@ -191,7 +191,7 @@ internal static class SpatialSolver
         {
             for (int j = 0; j < ny; j++)
             {
-                int idx = j;
+                int idx = 0 * ny + j;
                 fixedNodeMask[idx] = true;
                 fixedNodeValues[idx] = anodePotential;
             }
@@ -262,6 +262,8 @@ internal static class SpatialSolver
                     // For outer-boundary nodes without fixed Dirichlet values, enforce
                     // zero normal flux by mirroring the interior neighbor as the ghost
                     // node value (∂phi/∂n = 0).
+                    // At i = 0 we mirror from i = 1, at i = nx-1 from i = nx-2,
+                    // and equivalently for j-boundaries.
                     int westI = i > 0 ? i - 1 : (nx > 1 ? 1 : 0);
                     int eastI = i < nx - 1 ? i + 1 : (nx > 1 ? nx - 2 : 0);
                     int southJ = j > 0 ? j - 1 : (ny > 1 ? 1 : 0);
@@ -306,10 +308,6 @@ internal static class SpatialSolver
             if (residual < SolverTolerance)
                 break;
         }
-
-        for (int idx = 0; idx < phi.Length; idx++)
-            if (fixedNodeMask[idx])
-                phi[idx] = fixedNodeValues[idx];
 
         return phi;
     }

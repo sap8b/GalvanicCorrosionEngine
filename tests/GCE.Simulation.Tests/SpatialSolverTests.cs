@@ -215,13 +215,15 @@ public class SpatialSolverTests
         Assert.NotNull(result.NodalPotentials);
 
         int ny = mesh.NodesY;
+        const int anodeInterfaceColumn = 1;
+        const int cathodeInterfaceColumn = 3;
         double anodePotential = MaterialRegistry.Zinc.StandardPotential;
         double cathodePotential = MaterialRegistry.Copper.StandardPotential;
 
         for (int j = 0; j < ny; j++)
         {
-            int anodeInterfaceIdx = 1 * ny + j;
-            int cathodeInterfaceIdx = 3 * ny + j;
+            int anodeInterfaceIdx = anodeInterfaceColumn * ny + j;
+            int cathodeInterfaceIdx = cathodeInterfaceColumn * ny + j;
             Assert.Equal(anodePotential, result.NodalPotentials![anodeInterfaceIdx], precision: 6);
             Assert.Equal(cathodePotential, result.NodalPotentials[cathodeInterfaceIdx], precision: 6);
         }
