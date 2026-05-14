@@ -142,6 +142,19 @@ public sealed class PoissonSolver2D : IPDESolver
             throw new ArgumentException(
                 $"conductivityMap must have length {nx * ny} (nx × ny).",
                 nameof(conductivityMap));
+        if (conductivityMap is not null)
+        {
+            for (int idx = 0; idx < conductivityMap.Length; idx++)
+            {
+                double conductivity = conductivityMap[idx];
+                if (!double.IsFinite(conductivity) || conductivity <= 0.0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(conductivityMap),
+                        $"conductivityMap[{idx}] must be a finite, positive value.");
+                }
+            }
+        }
 
         _nx      = nx;
         _ny      = ny;
@@ -163,22 +176,7 @@ public sealed class PoissonSolver2D : IPDESolver
             ? (double[])conductivityMap.Clone()
             : new double[nx * ny];
         if (conductivityMap is null)
-        {
             Array.Fill(_conductivity, 1.0);
-        }
-        else
-        {
-            for (int idx = 0; idx < _conductivity.Length; idx++)
-            {
-                double conductivity = _conductivity[idx];
-                if (!double.IsFinite(conductivity) || conductivity <= 0.0)
-                {
-                    throw new ArgumentOutOfRangeException(
-                        nameof(conductivityMap),
-                        $"conductivityMap[{idx}] must be a finite, positive value.");
-                }
-            }
-        }
 
         // Precompute source at every grid node (source is time-independent).
         _f = new double[nx * ny];
@@ -270,7 +268,7 @@ public sealed class PoissonSolver2D : IPDESolver
     private static double FaceConductivity(double first, double second)
     {
         double sum = first + second;
-        return sum <= 0.0 ? 0.0 : 2.0 * first * second / sum;
+        return 2.0 * first * second / sum;
     }
 
     /// <summary>
