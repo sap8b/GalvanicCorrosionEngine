@@ -11,11 +11,19 @@ namespace GCE.Simulation;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Boundary conditions are derived from the galvanic couple's anode and cathode
-/// standard potentials and applied at the dynamically identified
-/// metal-electrolyte interfaces (anode/electrolyte and cathode/electrolyte).
-/// Nodes that are not part of those interfaces use zero-flux boundaries on the
-/// outer domain perimeter.
+/// At dynamically identified metal-electrolyte interfaces the solver imposes
+/// Robin (mixed) boundary conditions derived from the Butler–Volmer equation:
+/// <code>κ ∂φ/∂n = i_BV(φ − E_eq)</code>
+/// where <c>n</c> is the outward normal from the electrode into the electrolyte,
+/// <c>E_eq</c> is the electrode equilibrium potential, and <c>i_BV</c> is the
+/// full Butler–Volmer current density.  This couples the local electrolyte-phase
+/// potential to the electrode kinetics without prescribing a fixed (Dirichlet)
+/// potential.
+/// </para>
+/// <para>
+/// When no electrode/electrolyte interface is detected for a given electrode type
+/// (e.g. a mesh that contains only electrolyte nodes), the solver falls back to
+/// legacy Dirichlet face boundary conditions on the domain perimeter.
 /// </para>
 /// <para>
 /// The local current density is computed from the potential gradient:
@@ -35,33 +43,50 @@ internal static class SpatialSolver
     private const int SolverMaxIterations = 2000;
     private const double SOROmega = 1.5;
 
+    // Small perturbation used for the numerical Jacobian of the BV equation.
+    private const double JacobianPerturbation = 1e-5;
+
+    // Holds pre-computed Robin BC data for a single electrode interface node.
+    private readonly record struct RobinInterfaceData(
+        bool IsRobin,
+        double EquilibriumPotential,
+        IElectrodeKinetics? Kinetics,
+        (int Idx, double Delta, double KFace)[]? Neighbors);
+
     /// <summary>
     /// Solves the variable-conductivity Laplace equation on <paramref name="mesh"/>
     /// and returns the nodal potential field and nodal corrosion rates.
     /// </summary>
     /// <param name="mesh">The spatial mesh to solve on.</param>
-    /// <param name="anodePotential">
-    /// Dirichlet value (V vs. SHE) applied on the anode-region boundary (left face, x = 0).
+    /// <param name="anodeMaterial">
+    /// Anode material, used for Butler–Volmer Robin BCs at the anode/electrolyte
+    /// interface and for Faraday's-law corrosion-rate conversion.
     /// </param>
-    /// <param name="cathodePotential">
-    /// Dirichlet value (V vs. SHE) applied on the cathode-region boundary (right face, x = Lx).
+    /// <param name="cathodeMaterial">
+    /// Cathode material, used for Butler–Volmer Robin BCs at the
+    /// cathode/electrolyte interface.
     /// </param>
     /// <param name="ionicConductivity">Electrolyte conductivity κ (S/m).</param>
-    /// <param name="anodeMaterial">Anode material for Faraday's-law corrosion-rate conversion.</param>
+    /// <param name="corrosionProductMaterial">Optional corrosion-product barrier layer.</param>
+    /// <param name="temperatureKelvin">
+    /// Absolute temperature (K) used to evaluate the Butler–Volmer thermal factor F/RT.
+    /// Defaults to 298.15 K (25 °C).
+    /// </param>
     /// <returns>
     /// A tuple of (nodalPotentials, nodalCorrosionRates), both flattened in
     /// row-major order (index = i*ny + j).
     /// </returns>
     internal static (double[] NodalPotentials, double[] NodalCorrosionRates) Solve(
         GeometryMesh                 mesh,
-        double                       anodePotential,
-        double                       cathodePotential,
-        double                       ionicConductivity,
         IMaterial                    anodeMaterial,
-        ICorrosionProductMaterial?   corrosionProductMaterial = null)
+        IMaterial                    cathodeMaterial,
+        double                       ionicConductivity,
+        ICorrosionProductMaterial?   corrosionProductMaterial = null,
+        double                       temperatureKelvin = 298.15)
     {
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentNullException.ThrowIfNull(anodeMaterial);
+        ArgumentNullException.ThrowIfNull(cathodeMaterial);
 
         int nx = mesh.NodesX;
         int ny = mesh.NodesY;
@@ -73,15 +98,30 @@ internal static class SpatialSolver
         if (lx <= 0.0) lx = 1.0;
         if (ly <= 0.0) ly = 1.0;
 
+        double dx = nx > 1 ? lx / (nx - 1) : 1.0;
+        double dy = ny > 1 ? ly / (ny - 1) : 1.0;
+
+        var anodeKinetics = new ButlerVolmerKinetics(
+            anodeMaterial.ExchangeCurrentDensity,
+            temperatureKelvin: temperatureKelvin);
+        var cathodeKinetics = new ButlerVolmerKinetics(
+            cathodeMaterial.ExchangeCurrentDensity,
+            temperatureKelvin: temperatureKelvin);
+
         double[] conductivityMap = BuildConductivityMap(mesh, ionicConductivity, corrosionProductMaterial);
-        (bool[] fixedNodeMask, double[] fixedNodeValues) = BuildDynamicBoundaryConditions(
-            mesh, anodePotential, cathodePotential);
+
+        (bool[] dirichletMask, double[] dirichletValues, RobinInterfaceData[] robinData) =
+            BuildInterfaceConditions(
+                mesh, nx, ny, dx, dy,
+                anodeMaterial, cathodeMaterial,
+                anodeKinetics, cathodeKinetics,
+                conductivityMap);
+
         double[] phi = SolvePotentialField(
-            nx, ny, lx, ly, conductivityMap, fixedNodeMask, fixedNodeValues);
+            nx, ny, lx, ly, conductivityMap, dirichletMask, dirichletValues, robinData);
 
         // Compute corrosion rates from current density j = -κ * dφ/dx (forward differences).
-        double dx = lx / (nx - 1);
-        double n  = anodeMaterial.ElectronsTransferred;
+        double n   = anodeMaterial.ElectronsTransferred;
         double M  = anodeMaterial.MolarMass;
         double rho = anodeMaterial.Density;
 
@@ -151,49 +191,81 @@ internal static class SpatialSolver
         return conductivityMap;
     }
 
-    private static (bool[] FixedNodeMask, double[] FixedNodeValues) BuildDynamicBoundaryConditions(
-        GeometryMesh mesh,
-        double       anodePotential,
-        double       cathodePotential)
-    {
-        int nx = mesh.NodesX;
-        int ny = mesh.NodesY;
-        bool[] fixedNodeMask = new bool[nx * ny];
-        double[] fixedNodeValues = new double[nx * ny];
+    // ── Interface condition builder ────────────────────────────────────────────
 
-        bool hasAnodeInterface = false;
+    /// <summary>
+    /// Builds Dirichlet (fallback) and Robin (Butler-Volmer) interface data.
+    /// Electrode nodes that adjoin an electrolyte node receive a Robin entry;
+    /// if no such interface is found for an electrode type the corresponding
+    /// domain-perimeter face falls back to a Dirichlet condition at E_eq.
+    /// </summary>
+    private static (bool[] DirichletMask, double[] DirichletValues, RobinInterfaceData[] RobinData)
+        BuildInterfaceConditions(
+            GeometryMesh     mesh,
+            int              nx,
+            int              ny,
+            double           dx,
+            double           dy,
+            IMaterial        anodeMaterial,
+            IMaterial        cathodeMaterial,
+            IElectrodeKinetics anodeKinetics,
+            IElectrodeKinetics cathodeKinetics,
+            double[]         conductivityMap)
+    {
+        bool[]             dirichletMask   = new bool[nx * ny];
+        double[]           dirichletValues = new double[nx * ny];
+        RobinInterfaceData[] robinData       = new RobinInterfaceData[nx * ny];
+
+        bool hasAnodeInterface   = false;
         bool hasCathodeInterface = false;
 
         for (int i = 0; i < nx; i++)
         {
             for (int j = 0; j < ny; j++)
             {
-                int idx = i * ny + j;
-                if (mesh.Regions[i, j] == NodePhase.Anode
-                    && HasNeighborPhase(mesh.Regions, nx, ny, i, j, NodePhase.Electrolyte))
+                int  idx    = i * ny + j;
+                bool isAnode   = mesh.Regions[i, j] == NodePhase.Anode;
+                bool isCathode = mesh.Regions[i, j] == NodePhase.Cathode;
+
+                if (!isAnode && !isCathode)
+                    continue;
+
+                // Collect all adjacent electrolyte-phase nodes.
+                var neighbors = FindElectrolyteNeighbors(
+                    mesh, nx, ny, i, j, dx, dy, conductivityMap);
+
+                if (neighbors.Count == 0)
+                    continue;
+
+                if (isAnode)
                 {
-                    fixedNodeMask[idx] = true;
-                    fixedNodeValues[idx] = anodePotential;
+                    robinData[idx] = new RobinInterfaceData(
+                        IsRobin:              true,
+                        EquilibriumPotential: anodeMaterial.StandardPotential,
+                        Kinetics:             anodeKinetics,
+                        Neighbors:            [.. neighbors]);
                     hasAnodeInterface = true;
                 }
-                else if (mesh.Regions[i, j] == NodePhase.Cathode
-                         && HasNeighborPhase(mesh.Regions, nx, ny, i, j, NodePhase.Electrolyte))
+                else
                 {
-                    fixedNodeMask[idx] = true;
-                    fixedNodeValues[idx] = cathodePotential;
+                    robinData[idx] = new RobinInterfaceData(
+                        IsRobin:              true,
+                        EquilibriumPotential: cathodeMaterial.StandardPotential,
+                        Kinetics:             cathodeKinetics,
+                        Neighbors:            [.. neighbors]);
                     hasCathodeInterface = true;
                 }
             }
         }
 
-        // Fallback to legacy face BCs when no interface nodes are available.
+        // Fallback to legacy Dirichlet face BCs when no interface was detected.
         if (!hasAnodeInterface)
         {
             for (int j = 0; j < ny; j++)
             {
                 int idx = 0 * ny + j;
-                fixedNodeMask[idx] = true;
-                fixedNodeValues[idx] = anodePotential;
+                dirichletMask[idx]   = true;
+                dirichletValues[idx] = anodeMaterial.StandardPotential;
             }
         }
 
@@ -202,47 +274,72 @@ internal static class SpatialSolver
             for (int j = 0; j < ny; j++)
             {
                 int idx = (nx - 1) * ny + j;
-                fixedNodeMask[idx] = true;
-                fixedNodeValues[idx] = cathodePotential;
+                dirichletMask[idx]   = true;
+                dirichletValues[idx] = cathodeMaterial.StandardPotential;
             }
         }
 
-        return (fixedNodeMask, fixedNodeValues);
+        return (dirichletMask, dirichletValues, robinData);
     }
 
-    private static bool HasNeighborPhase(
-        NodePhase[,] regions,
+    /// <summary>
+    /// Returns (index, grid-spacing, harmonic-mean face conductivity) for every
+    /// electrolyte-phase node adjacent to node (i, j).
+    /// </summary>
+    private static List<(int Idx, double Delta, double KFace)> FindElectrolyteNeighbors(
+        GeometryMesh mesh,
         int          nx,
         int          ny,
         int          i,
         int          j,
-        NodePhase    targetPhase)
+        double       dx,
+        double       dy,
+        double[]     conductivityMap)
     {
-        if (i > 0 && regions[i - 1, j] == targetPhase) return true;
-        if (i < nx - 1 && regions[i + 1, j] == targetPhase) return true;
-        if (j > 0 && regions[i, j - 1] == targetPhase) return true;
-        if (j < ny - 1 && regions[i, j + 1] == targetPhase) return true;
-        return false;
+        var result = new List<(int, double, double)>(4);
+        int idx    = i * ny + j;
+        double kC  = conductivityMap[idx];
+
+        if (i > 0     && mesh.Regions[i - 1, j] == NodePhase.Electrolyte)
+            result.Add(((i - 1) * ny + j, dx, FaceConductivity(kC, conductivityMap[(i - 1) * ny + j])));
+        if (i < nx - 1 && mesh.Regions[i + 1, j] == NodePhase.Electrolyte)
+            result.Add(((i + 1) * ny + j, dx, FaceConductivity(kC, conductivityMap[(i + 1) * ny + j])));
+        if (j > 0     && mesh.Regions[i, j - 1] == NodePhase.Electrolyte)
+            result.Add((i * ny + (j - 1), dy, FaceConductivity(kC, conductivityMap[i * ny + (j - 1)])));
+        if (j < ny - 1 && mesh.Regions[i, j + 1] == NodePhase.Electrolyte)
+            result.Add((i * ny + (j + 1), dy, FaceConductivity(kC, conductivityMap[i * ny + (j + 1)])));
+
+        return result;
     }
 
+    // ── Potential solver ───────────────────────────────────────────────────────
+
     private static double[] SolvePotentialField(
-        int      nx,
-        int      ny,
-        double   lx,
-        double   ly,
-        double[] conductivityMap,
-        bool[]   fixedNodeMask,
-        double[] fixedNodeValues)
+        int                  nx,
+        int                  ny,
+        double               lx,
+        double               ly,
+        double[]             conductivityMap,
+        bool[]               dirichletMask,
+        double[]             dirichletValues,
+        RobinInterfaceData[] robinData)
     {
-        double dx = nx > 1 ? lx / (nx - 1) : 1.0;
-        double dy = ny > 1 ? ly / (ny - 1) : 1.0;
+        double dx  = nx > 1 ? lx / (nx - 1) : 1.0;
+        double dy  = ny > 1 ? ly / (ny - 1) : 1.0;
         double dx2 = dx * dx;
         double dy2 = dy * dy;
 
         var phi = new double[nx * ny];
+
+        // Seed Dirichlet and Robin nodes with their equilibrium/prescribed values
+        // to give the iterative solver a physically meaningful starting point.
         for (int idx = 0; idx < phi.Length; idx++)
-            if (fixedNodeMask[idx])
-                phi[idx] = fixedNodeValues[idx];
+        {
+            if (dirichletMask[idx])
+                phi[idx] = dirichletValues[idx];
+            else if (robinData[idx].IsRobin)
+                phi[idx] = robinData[idx].EquilibriumPotential;
+        }
 
         for (int iter = 0; iter < SolverMaxIterations; iter++)
         {
@@ -253,28 +350,42 @@ internal static class SpatialSolver
                 for (int j = 0; j < ny; j++)
                 {
                     int idx = i * ny + j;
-                    if (fixedNodeMask[idx])
+
+                    if (dirichletMask[idx])
                     {
-                        phi[idx] = fixedNodeValues[idx];
+                        phi[idx] = dirichletValues[idx];
                         continue;
                     }
 
-                    // For outer-boundary nodes without fixed Dirichlet values, enforce
-                    // zero normal flux by mirroring the interior neighbor as the ghost
-                    // node value (∂phi/∂n = 0).
-                    // At i = 0 we mirror from i = 1, at i = nx-1 from i = nx-2,
-                    // and equivalently for j-boundaries.
-                    int westI = i > 0 ? i - 1 : (nx > 1 ? 1 : 0);
-                    int eastI = i < nx - 1 ? i + 1 : (nx > 1 ? nx - 2 : 0);
-                    int southJ = j > 0 ? j - 1 : (ny > 1 ? 1 : 0);
-                    int northJ = j < ny - 1 ? j + 1 : (ny > 1 ? ny - 2 : 0);
+                    if (robinData[idx].IsRobin)
+                    {
+                        // Robin (Butler-Volmer) interface node: κ ∂φ/∂n = i_BV(φ − E_eq).
+                        // Use a linearised Newton update averaged over all electrolyte-
+                        // facing neighbours; plain Gauss-Seidel (ω = 1) for stability.
+                        double oldValue = phi[idx];
+                        double newValue = ComputeRobinUpdate(phi, idx, in robinData[idx]);
+                        phi[idx] = newValue;
+                        double change = Math.Abs(newValue - oldValue);
+                        if (change > residual)
+                            residual = change;
+                        continue;
+                    }
+
+                    // Interior node: variable-conductivity Gauss-Seidel / SOR.
+                    // For outer-boundary nodes without a prescribed value, enforce
+                    // zero normal flux by mirroring the interior neighbour (ghost
+                    // node value, ∂phi/∂n = 0).
+                    int westI  = i > 0      ? i - 1 : (nx > 1 ? 1    : 0);
+                    int eastI  = i < nx - 1 ? i + 1 : (nx > 1 ? nx-2 : 0);
+                    int southJ = j > 0      ? j - 1 : (ny > 1 ? 1    : 0);
+                    int northJ = j < ny - 1 ? j + 1 : (ny > 1 ? ny-2 : 0);
 
                     double conductivity = conductivityMap[idx];
                     double kW = i > 0
-                        ? FaceConductivity(conductivity, conductivityMap[westI * ny + j])
+                        ? FaceConductivity(conductivity, conductivityMap[westI  * ny + j])
                         : conductivity;
                     double kE = i < nx - 1
-                        ? FaceConductivity(conductivity, conductivityMap[eastI * ny + j])
+                        ? FaceConductivity(conductivity, conductivityMap[eastI  * ny + j])
                         : conductivity;
                     double kS = j > 0
                         ? FaceConductivity(conductivity, conductivityMap[i * ny + southJ])
@@ -283,8 +394,8 @@ internal static class SpatialSolver
                         ? FaceConductivity(conductivity, conductivityMap[i * ny + northJ])
                         : conductivity;
 
-                    double uW = phi[westI * ny + j];
-                    double uE = phi[eastI * ny + j];
+                    double uW = phi[westI  * ny + j];
+                    double uE = phi[eastI  * ny + j];
                     double uS = phi[i * ny + southJ];
                     double uN = phi[i * ny + northJ];
 
@@ -296,12 +407,12 @@ internal static class SpatialSolver
                                          + (kS * uS + kN * uN) / dy2)
                                         / denominator;
 
-                    double oldValue = phi[idx];
-                    double newValue = (1.0 - SOROmega) * oldValue + SOROmega * uGaussSeidel;
-                    phi[idx] = newValue;
-                    double change = Math.Abs(newValue - oldValue);
-                    if (change > residual)
-                        residual = change;
+                    double oldVal = phi[idx];
+                    double newVal = (1.0 - SOROmega) * oldVal + SOROmega * uGaussSeidel;
+                    phi[idx] = newVal;
+                    double delta = Math.Abs(newVal - oldVal);
+                    if (delta > residual)
+                        residual = delta;
                 }
             }
 
@@ -310,6 +421,58 @@ internal static class SpatialSolver
         }
 
         return phi;
+    }
+
+    /// <summary>
+    /// Computes a linearised Robin (Butler-Volmer) update for an electrode
+    /// interface node.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For each adjacent electrolyte neighbour d at distance Δ_d and harmonic-mean
+    /// face conductivity κ_d, the Robin condition is:
+    /// <code>κ_d · (φ_d − φ) / Δ_d = i_BV(φ − E_eq)</code>
+    /// Linearising i_BV around the current iterate and solving for φ gives:
+    /// <code>φ_new = (h_d · φ_d − i_BV_k + J_k · φ_k) / (h_d + J_k)</code>
+    /// where h_d = κ_d/Δ_d, i_BV_k = i_BV(η_k), J_k = di_BV/dη|_{η_k},
+    /// and η_k = φ_k − E_eq.  The result is averaged over all electrolyte
+    /// neighbours.
+    /// </para>
+    /// </remarks>
+    private static double ComputeRobinUpdate(
+        double[]              phi,
+        int                   idx,
+        in RobinInterfaceData robin)
+    {
+        double phiCurrent = phi[idx];
+        double eta  = phiCurrent - robin.EquilibriumPotential;
+        double iBV  = robin.Kinetics!.CurrentDensity(eta);
+
+        // Numerical Jacobian: di_BV/dη using a centred finite difference.
+        double J = (robin.Kinetics.CurrentDensity(eta + JacobianPerturbation)
+                  - robin.Kinetics.CurrentDensity(eta - JacobianPerturbation))
+                 / (2.0 * JacobianPerturbation);
+
+        double sum   = 0.0;
+        int    count = robin.Neighbors!.Length;
+
+        foreach ((int neighborIdx, double delta, double kFace) in robin.Neighbors)
+        {
+            double h     = kFace / delta;
+            double denom = h + J;
+
+            // h > 0 and J ≥ 0 in all physically valid cases; the guard below
+            // defends against degenerate numerics (e.g. zero conductivity).
+            if (denom <= 0.0)
+            {
+                sum += phiCurrent;
+                continue;
+            }
+
+            sum += (h * phi[neighborIdx] - iBV + J * phiCurrent) / denom;
+        }
+
+        return count > 0 ? sum / count : phiCurrent;
     }
 
     private static double FaceConductivity(double first, double second)

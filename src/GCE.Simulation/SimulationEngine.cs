@@ -317,11 +317,11 @@ public sealed class SimulationEngine : ISimulationRunner
 
                 (lastNodalPotentials, lastNodalCorrosionRates) = SpatialSolver.Solve(
                     parameters.Mesh,
-                    parameters.Pair.Anode.StandardPotential,
-                    parameters.Pair.Cathode.StandardPotential,
-                    kappaSpatial,
                     parameters.Pair.Anode,
-                    parameters.CorrosionProductMaterial);
+                    parameters.Pair.Cathode,
+                    kappaSpatial,
+                    parameters.CorrosionProductMaterial,
+                    envSpatial.TemperatureKelvin);
 
                 if (geoEvolver is not null)
                 {
@@ -410,18 +410,16 @@ public sealed class SimulationEngine : ISimulationRunner
         double[]? nodalCorrosionRates = lastNodalCorrosionRates;
         if (nodalPotentials is null && parameters.Mesh is not null && potentials.Count > 0)
         {
-            double anodeE  = parameters.Pair.Anode.StandardPotential;
-            double cathodeE = parameters.Pair.Cathode.StandardPotential;
             var    lastEnv  = GetEnvironmentAt(parameters, times.Count > 0 ? times[^1] : 0.0);
             double kappa    = lastEnv.IonicConductivity > 0 ? lastEnv.IonicConductivity : 1e-3;
 
             (nodalPotentials, nodalCorrosionRates) = SpatialSolver.Solve(
                 parameters.Mesh,
-                anodeE,
-                cathodeE,
-                kappa,
                 parameters.Pair.Anode,
-                parameters.CorrosionProductMaterial);
+                parameters.Pair.Cathode,
+                kappa,
+                parameters.CorrosionProductMaterial,
+                lastEnv.TemperatureKelvin);
         }
 
         IReadOnlyDictionary<string, IReadOnlyList<double>>? speciesConcentrationHistory = null;
