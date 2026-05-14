@@ -469,6 +469,31 @@ public class IGeometryBuilderContractTests
         Assert.Equal(mesh.NodesX, mesh.Regions.GetLength(0));
         Assert.Equal(mesh.NodesY, mesh.Regions.GetLength(1));
     }
+
+    [Theory]
+    [MemberData(nameof(AllBuilders))]
+    public void BuildMesh_WithExplicitCoordinates_UsesProvidedCoordinates(IGeometryBuilder builder)
+    {
+        var xs = new double[] { 0.0, 0.001, 0.003, 0.010 };
+        var ys = new double[] { 0.0, 0.002, 0.006 };
+
+        var mesh = builder.BuildMesh(xs, ys);
+
+        Assert.Equal(xs, mesh.XCoordinates);
+        Assert.Equal(ys, mesh.YCoordinates);
+        Assert.Equal(xs.Length, mesh.NodesX);
+        Assert.Equal(ys.Length, mesh.NodesY);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllBuilders))]
+    public void BuildMesh_WithNonMonotonicCoordinates_Throws(IGeometryBuilder builder)
+    {
+        var xs = new double[] { 0.0, 0.01, 0.009 };
+        var ys = new double[] { 0.0, 0.01 };
+
+        Assert.Throws<ArgumentException>(() => builder.BuildMesh(xs, ys));
+    }
 }
 
 // ── CoaxialCylinderGeometry tests ─────────────────────────────────────────────

@@ -42,4 +42,9 @@ public sealed class SimulationConfig
     /// <see cref="WeatherProviderType.None"/>), the static <see cref="Environment"/> is used.
     /// </summary>
     public WeatherConfig? Weather { get; set; }
+
+    /// <summary>
+    /// Gets or sets node-spacing and mesh-resolution guidance for geometry discretisation.
+    /// </summary>
+    public NodeSpacingConfig NodeSpacing { get; set; } = new();
 }

@@ -24,6 +24,7 @@ public sealed class SimulationConfigValidator
         ValidateEnvironment(config.Environment, errors);
         ValidateDuration(config.DurationSeconds, errors);
         ValidateTimeSteps(config.TimeSteps, errors);
+        ValidateNodeSpacing(config.NodeSpacing, errors);
 
         if (config.Weather is not null && config.Weather.Type != WeatherProviderType.None)
             ValidateWeather(config.Weather, errors);
@@ -121,6 +122,64 @@ public sealed class SimulationConfigValidator
     {
         if (timeSteps <= 0)
             errors.Add($"'timeSteps' must be a positive integer (got {timeSteps}).");
+    }
+
+    // ── Node spacing ───────────────────────────────────────────────────────────
+
+    private static void ValidateNodeSpacing(NodeSpacingConfig? cfg, List<string> errors)
+    {
+        if (cfg is null)
+        {
+            errors.Add("The 'nodeSpacing' section is required.");
+            return;
+        }
+
+        if (cfg.ExpectedPenetrationDepth < 0.0)
+            errors.Add($"'nodeSpacing.expectedPenetrationDepth' must be non-negative (got {cfg.ExpectedPenetrationDepth}).");
+
+        if (cfg.ExpectedDepositionThickness < 0.0)
+            errors.Add($"'nodeSpacing.expectedDepositionThickness' must be non-negative (got {cfg.ExpectedDepositionThickness}).");
+
+        if (cfg.NodesPerExpectedDepth <= 0)
+            errors.Add($"'nodeSpacing.nodesPerExpectedDepth' must be a positive integer (got {cfg.NodesPerExpectedDepth}).");
+
+        if (cfg.Strategy == NodeSpacingStrategy.UniformFromExpectedDepth &&
+            cfg.CharacteristicDepth <= 0.0)
+        {
+            errors.Add(
+                "'nodeSpacing' with strategy 'uniformFromExpectedDepth' requires a positive " +
+                "'expectedPenetrationDepth' or 'expectedDepositionThickness'.");
+        }
+
+        if (cfg.Strategy == NodeSpacingStrategy.ExplicitCoordinates)
+        {
+            ValidateCoordinateArray(cfg.XCoordinates, "nodeSpacing.xCoordinates", errors);
+            ValidateCoordinateArray(cfg.YCoordinates, "nodeSpacing.yCoordinates", errors);
+        }
+    }
+
+    private static void ValidateCoordinateArray(double[]? coordinates, string path, List<string> errors)
+    {
+        if (coordinates is null)
+        {
+            errors.Add($"'{path}' is required when node spacing strategy is 'explicitCoordinates'.");
+            return;
+        }
+
+        if (coordinates.Length < 2)
+        {
+            errors.Add($"'{path}' must contain at least two coordinates.");
+            return;
+        }
+
+        for (int i = 1; i < coordinates.Length; i++)
+        {
+            if (coordinates[i] <= coordinates[i - 1])
+            {
+                errors.Add($"'{path}' must be strictly increasing; invalid pair at indices {i - 1} and {i}.");
+                return;
+            }
+        }
     }
 
     // ── Weather ───────────────────────────────────────────────────────────────

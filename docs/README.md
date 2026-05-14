@@ -139,6 +139,18 @@ var mesh = geometry.BuildMesh(nodesX: 35, nodesY: 20);
 new VtkResultWriter(mesh).WriteToFile(result, "output.vtr");
 ```
 
+You can also provide explicit (including non-uniform) coordinates:
+
+```csharp
+var mesh = geometry.BuildMesh(
+    xCoordinates: [0.0, 0.001, 0.002, 0.004, 0.008],
+    yCoordinates: [0.0, 0.002, 0.006, 0.010]);
+```
+
+The smallest resolvable recession/deposition increment is one local node pitch Δx.
+For a 1 m² out-of-plane cross-section, one dissolved node corresponds to a removed
+volume of **Δx × 1 m²**.
+
 Open the resulting `.vtr` file in [ParaView](https://www.paraview.org/) or
 [VisIt](https://visit-dav.github.io/visit-website/) to visualise the spatial mesh
 alongside the corrosion time series.

@@ -35,6 +35,10 @@
         { "$ref": "#/definitions/weather" }
       ],
       "description": "Optional time-varying weather provider. Omit or set type to 'none' for a static simulation."
+    },
+    "nodeSpacing": {
+      "$ref": "#/definitions/nodeSpacing",
+      "description": "Node spacing strategy and physical resolution guidance for geometry meshes."
     }
   },
   "required": [],
@@ -159,6 +163,49 @@
         }
       },
       "required": ["type"],
+      "additionalProperties": false
+    },
+    "nodeSpacing": {
+      "type": "object",
+      "description": "Controls mesh spacing strategy. The minimum resolvable recession/deposition is one node pitch (Δx).",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["uniformFromExpectedDepth", "explicitCoordinates"],
+          "default": "uniformFromExpectedDepth",
+          "description": "How Δx is selected: from expected depth scales or from explicit coordinates."
+        },
+        "expectedPenetrationDepth": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.001,
+          "description": "Expected maximum penetration depth in metres."
+        },
+        "expectedDepositionThickness": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Expected maximum deposition thickness in metres."
+        },
+        "nodesPerExpectedDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Number of nodes across max(expectedPenetrationDepth, expectedDepositionThickness)."
+        },
+        "xCoordinates": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "description": "Explicit x coordinates (metres), strictly increasing, for non-uniform grids."
+        },
+        "yCoordinates": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "description": "Explicit y coordinates (metres), strictly increasing, for non-uniform grids."
+        }
+      },
       "additionalProperties": false
     }
   }

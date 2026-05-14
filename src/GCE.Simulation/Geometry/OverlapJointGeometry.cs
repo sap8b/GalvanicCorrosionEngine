@@ -121,15 +121,43 @@ public sealed class OverlapJointGeometry : IGeometryBuilder
         for (int i = 0; i < nodesX; i++) xs[i] = i * xStep;
         for (int j = 0; j < nodesY; j++) ys[j] = j * yStep;
 
+        return BuildMesh(xs, ys);
+    }
+
+    /// <inheritdoc/>
+    public GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates)
+    {
+        ArgumentNullException.ThrowIfNull(xCoordinates);
+        ArgumentNullException.ThrowIfNull(yCoordinates);
+        ValidateCoordinates(xCoordinates, nameof(xCoordinates));
+        ValidateCoordinates(yCoordinates, nameof(yCoordinates));
+
+        var xs = (double[])xCoordinates.Clone();
+        var ys = (double[])yCoordinates.Clone();
+
+        NodePhase region1 = _mat1IsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase region2 = _mat1IsAnode ? NodePhase.Cathode : NodePhase.Anode;
         double mid = OverlapWidth / 2.0;
-        var regions = new NodePhase[nodesX, nodesY];
-        for (int i = 0; i < nodesX; i++)
+        var regions = new NodePhase[xs.Length, ys.Length];
+        for (int i = 0; i < xs.Length; i++)
         {
             NodePhase region = xs[i] <= mid ? region1 : region2;
-            for (int j = 0; j < nodesY; j++)
+            for (int j = 0; j < ys.Length; j++)
                 regions[i, j] = region;
         }
 
         return new GeometryMesh(xs, ys, regions);
+    }
+
+    private static void ValidateCoordinates(double[] coordinates, string paramName)
+    {
+        if (coordinates.Length < 2)
+            throw new ArgumentException("Coordinate array must contain at least two points.", paramName);
+
+        for (int i = 1; i < coordinates.Length; i++)
+        {
+            if (coordinates[i] <= coordinates[i - 1])
+                throw new ArgumentException("Coordinate array must be strictly increasing.", paramName);
+        }
     }
 }
