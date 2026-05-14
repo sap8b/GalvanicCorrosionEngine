@@ -21,10 +21,11 @@ public class NodeMassLossTests
     /// </summary>
     private static GeometryMesh StandardMesh()
     {
+        const int lastAnodeColumn = 2; // columns 0..2 are Anode, 3..4 are Cathode
         var regions = new NodePhase[5, 5];
         for (int i = 0; i < 5; i++)
             for (int j = 0; j < 5; j++)
-                regions[i, j] = i <= 2 ? NodePhase.Anode : NodePhase.Cathode;
+                regions[i, j] = i <= lastAnodeColumn ? NodePhase.Anode : NodePhase.Cathode;
 
         return new GeometryMesh(
             XCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
@@ -112,10 +113,11 @@ public class NodeMassLossTests
         var result = Engine.Run(MeshParams(StandardMesh()));
 
         Assert.NotNull(result.NodeMassLoss);
-        // All Anode nodes (i = 0–2) must accumulate non-zero mass loss
-        // given the non-zero corrosion rate produced by the Zinc/Copper couple.
-        const int ny = 5;
-        for (int i = 0; i <= 2; i++)
+        // All Anode nodes (columns 0–2 in the 5×5 StandardMesh) must accumulate
+        // non-zero mass loss given the non-zero corrosion rate of the Zinc/Copper couple.
+        const int ny               = 5;
+        const int lastAnodeColumn  = 2;
+        for (int i = 0; i <= lastAnodeColumn; i++)
             for (int j = 0; j < 5; j++)
                 Assert.True(result.NodeMassLoss![i * ny + j] > 0.0,
                     $"Expected positive mass loss at anode node ({i},{j}).");
@@ -127,9 +129,11 @@ public class NodeMassLossTests
         var result = Engine.Run(MeshParams(StandardMesh()));
 
         Assert.NotNull(result.NodeMassLoss);
-        // Cathode nodes (i = 3–4) are never in NodePhase.Anode so they should not accumulate mass.
-        const int ny = 5;
-        for (int i = 3; i <= 4; i++)
+        // Cathode nodes (columns 3–4 in the 5×5 StandardMesh) are never NodePhase.Anode
+        // so they should not accumulate mass.
+        const int ny              = 5;
+        const int firstCathodeCol = 3;
+        for (int i = firstCathodeCol; i <= 4; i++)
             for (int j = 0; j < 5; j++)
                 Assert.Equal(0.0, result.NodeMassLoss![i * ny + j]);
     }

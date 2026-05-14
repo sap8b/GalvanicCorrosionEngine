@@ -33,7 +33,7 @@ public sealed class SimulationEngine : ISimulationRunner
     /// </summary>
     private const double MaxAdaptiveStepMultiplier = 4.0;
 
-    /// <summary>Approximate seconds per year, used for mass-loss calculations.</summary>
+    /// <summary>Approximate seconds per Julian year (365.25 d × 86 400 s/d), used for mass-loss calculations.</summary>
     private const double SecondsPerYear = 3.156e7;
     /// <summary>
     /// Runs a galvanic corrosion simulation synchronously and returns the full result.
@@ -475,6 +475,9 @@ public sealed class SimulationEngine : ISimulationRunner
         int nx = mesh.NodesX;
         int ny = mesh.NodesY;
 
+        // Assume a uniform rectilinear grid: node spacing is the total span divided by
+        // the number of intervals.  Non-uniform meshes are not currently supported and
+        // would require per-node area calculations using adjacent coordinate differences.
         double dx = nx > 1 ? (mesh.XCoordinates[nx - 1] - mesh.XCoordinates[0]) / (nx - 1) : 1.0;
         double dy = ny > 1 ? (mesh.YCoordinates[ny - 1] - mesh.YCoordinates[0]) / (ny - 1) : 1.0;
         double aNode     = dx * dy;                        // nodal cell area (m²)
