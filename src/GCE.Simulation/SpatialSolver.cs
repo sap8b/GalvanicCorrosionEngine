@@ -1,4 +1,5 @@
 using GCE.Core;
+using GCE.Electrochemistry;
 using GCE.Numerics.Solvers;
 
 namespace GCE.Simulation;
@@ -48,11 +49,12 @@ internal static class SpatialSolver
     /// row-major order (index = i*ny + j).
     /// </returns>
     internal static (double[] NodalPotentials, double[] NodalCorrosionRates) Solve(
-        GeometryMesh mesh,
-        double       anodePotential,
-        double       cathodePotential,
-        double       ionicConductivity,
-        IMaterial    anodeMaterial)
+        GeometryMesh                 mesh,
+        double                       anodePotential,
+        double                       cathodePotential,
+        double                       ionicConductivity,
+        IMaterial                    anodeMaterial,
+        ICorrosionProductMaterial?   corrosionProductMaterial = null)
     {
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentNullException.ThrowIfNull(anodeMaterial);
@@ -74,7 +76,7 @@ internal static class SpatialSolver
         var bottomBC = new NeumannBC(0.0);
         var topBC    = new NeumannBC(0.0);
 
-        double[] conductivityMap = BuildConductivityMap(mesh, ionicConductivity);
+        double[] conductivityMap = BuildConductivityMap(mesh, ionicConductivity, corrosionProductMaterial);
 
         var solver = new LaplaceSolver2D(
             nx, ny, lx, ly,
@@ -111,6 +113,8 @@ internal static class SpatialSolver
                     dphiDx = (phi[(i + 1) * ny + j] - phi[(i - 1) * ny + j]) / (2.0 * dx);
 
                 double currentDensity = -conductivityMap[idx] * dphiDx; // A/m²
+                if (mesh.Regions[i, j] == NodePhase.CorrosionProduct)
+                    currentDensity = CorrosionProductBehavior.ApplyBarrierResistance(currentDensity, corrosionProductMaterial);
 
                 // Faraday's law: rate (mm/year) = |i| × M / (n × F × ρ) × seconds_per_year × 1000
                 nodalCorrosionRates[idx] = Math.Abs(currentDensity) * M
@@ -122,16 +126,20 @@ internal static class SpatialSolver
         return (nodalPotentials, nodalCorrosionRates);
     }
 
-    private static double[] BuildConductivityMap(GeometryMesh mesh, double ionicConductivity)
+    private static double[] BuildConductivityMap(
+        GeometryMesh               mesh,
+        double                     ionicConductivity,
+        ICorrosionProductMaterial? corrosionProductMaterial)
     {
         int nx = mesh.NodesX;
         int ny = mesh.NodesY;
         double electrolyteConductivity = ionicConductivity > 0.0
             ? ionicConductivity
             : DefaultElectrolyteConductivity;
-        double corrosionProductConductivity =
-            Math.Max(electrolyteConductivity * CorrosionProductConductivityRatio,
-                     MinimumCorrosionProductConductivity);
+        double corrosionProductConductivity = corrosionProductMaterial is null
+            ? Math.Max(electrolyteConductivity * CorrosionProductConductivityRatio,
+                       MinimumCorrosionProductConductivity)
+            : CorrosionProductBehavior.GetEffectiveConductivity(corrosionProductMaterial);
 
         double[] conductivityMap = new double[nx * ny];
         for (int i = 0; i < nx; i++)

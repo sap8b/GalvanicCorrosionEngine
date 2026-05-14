@@ -47,13 +47,16 @@ public class SpatialSolverTests
             Regions: regions);
     }
 
-    private static SimulationParameters MakeParams(GeometryMesh mesh) =>
+    private static SimulationParameters MakeParams(
+        GeometryMesh mesh,
+        ICorrosionProductMaterial? corrosionProductMaterial = null) =>
         new SimulationParameters(
             new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
             new AtmosphericConditions(25.0, 0.75, 0.1),
             DurationSeconds: 360,
             TimeSteps: 10,
-            Mesh: mesh);
+            Mesh: mesh,
+            CorrosionProductMaterial: corrosionProductMaterial);
 
     [Fact]
     public void Run_WithMesh_NodalPotentialsLengthMatchesMeshNodeCount()
@@ -162,5 +165,22 @@ public class SpatialSolverTests
 
         Assert.True(electrolyteRate > corrosionProductRate,
             $"Expected electrolyte rate {electrolyteRate} to exceed corrosion-product rate {corrosionProductRate}.");
+    }
+
+    [Fact]
+    public void Run_WithExplicitCorrosionProductMaterial_FurtherLowersCorrosionProductRate()
+    {
+        var baseline = Engine.Run(MakeParams(PhaseLayeredMesh()));
+        var withBarrier = Engine.Run(MakeParams(PhaseLayeredMesh(), CorrosionProductBehavior.AluminiumOxide));
+
+        Assert.NotNull(baseline.NodalCorrosionRates);
+        Assert.NotNull(withBarrier.NodalCorrosionRates);
+
+        const int ny = 5;
+        double baselineRate = baseline.NodalCorrosionRates![2 * ny + 4];
+        double barrierRate = withBarrier.NodalCorrosionRates![2 * ny + 4];
+
+        Assert.True(barrierRate < baselineRate,
+            $"Expected explicit corrosion-product rate {barrierRate} to be below baseline rate {baselineRate}.");
     }
 }
