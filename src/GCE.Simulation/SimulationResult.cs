@@ -59,4 +59,12 @@ public sealed class SimulationResult
     /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
     /// </summary>
     public double[]? NodeMassLoss { get; init; }
+
+    /// <summary>
+    /// Gets the number of outer geometric steps taken during the simulation.
+    /// Populated only when <see cref="SimulationParameters.UseOperatorSplitting"/> is
+    /// <see langword="true"/> and a <see cref="GeometryMesh"/> was provided;
+    /// otherwise 0.
+    /// </summary>
+    public int GeoStepCount { get; init; }
 }
