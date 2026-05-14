@@ -207,25 +207,40 @@ public class SpatialSolverTests
     }
 
     [Fact]
-    public void Run_WithDynamicMetalElectrolyteInterfaces_AppliesElectrodePotentialsAtInterfaces()
+    public void Run_WithDynamicMetalElectrolyteInterfaces_RobinBCsProducePhysicallyConsistentPotentials()
     {
-        var mesh = DynamicInterfaceMesh();
+        var mesh   = DynamicInterfaceMesh();
         var result = Engine.Run(MakeParams(mesh));
 
         Assert.NotNull(result.NodalPotentials);
 
-        int ny = mesh.NodesY;
-        const int anodeInterfaceColumn = 1;
-        const int cathodeInterfaceColumn = 3;
-        double anodePotential = MaterialRegistry.Zinc.StandardPotential;
-        double cathodePotential = MaterialRegistry.Copper.StandardPotential;
+        int    ny              = mesh.NodesY;
+        double anodeEq         = MaterialRegistry.Zinc.StandardPotential;
+        double cathodeEq       = MaterialRegistry.Copper.StandardPotential;
+
+        // With Robin/Butler-Volmer BCs the interface potential is no longer fixed
+        // at the equilibrium value; instead it is governed by the BV kinetics.
+        // Physical invariants that must hold for a galvanic couple:
+        //   1. Anode interface potential is above the anode equilibrium (anodic
+        //      polarisation raises it toward the mixed potential).
+        //   2. Cathode interface potential is below the cathode equilibrium
+        //      (cathodic polarisation pulls it toward the mixed potential).
+        //   3. Anode interface potential < cathode interface potential (correct
+        //      direction of the electrolyte potential gradient).
+        const int anodeInterfaceColumn   = 1;  // i = 1: anode nodes adjacent to electrolyte
+        const int cathodeInterfaceColumn = 3;  // i = 3: cathode nodes adjacent to electrolyte
 
         for (int j = 0; j < ny; j++)
         {
-            int anodeInterfaceIdx = anodeInterfaceColumn * ny + j;
-            int cathodeInterfaceIdx = cathodeInterfaceColumn * ny + j;
-            Assert.Equal(anodePotential, result.NodalPotentials![anodeInterfaceIdx], precision: 6);
-            Assert.Equal(cathodePotential, result.NodalPotentials[cathodeInterfaceIdx], precision: 6);
+            double phiAnode   = result.NodalPotentials![anodeInterfaceColumn   * ny + j];
+            double phiCathode = result.NodalPotentials![cathodeInterfaceColumn * ny + j];
+
+            Assert.True(phiAnode   >  anodeEq,
+                $"Anode interface potential {phiAnode} should exceed equilibrium {anodeEq}.");
+            Assert.True(phiCathode <  cathodeEq,
+                $"Cathode interface potential {phiCathode} should be below equilibrium {cathodeEq}.");
+            Assert.True(phiAnode   <  phiCathode,
+                $"Anode potential {phiAnode} should be less than cathode potential {phiCathode}.");
         }
     }
 }
