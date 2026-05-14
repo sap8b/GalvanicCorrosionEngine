@@ -26,6 +26,7 @@ internal static class SpatialSolver
 {
     private const double SecondsPerYear = 3.156e7;
     private const double MetalConductivity = 1.0e6;
+    private const double DefaultElectrolyteConductivity = 1.0e-3;
     private const double CorrosionProductConductivityRatio = 1.0e-2;
     private const double MinimumCorrosionProductConductivity = 1.0e-6;
 
@@ -125,7 +126,9 @@ internal static class SpatialSolver
     {
         int nx = mesh.NodesX;
         int ny = mesh.NodesY;
-        double electrolyteConductivity = ionicConductivity > 0.0 ? ionicConductivity : 1e-3;
+        double electrolyteConductivity = ionicConductivity > 0.0
+            ? ionicConductivity
+            : DefaultElectrolyteConductivity;
         double corrosionProductConductivity =
             Math.Max(electrolyteConductivity * CorrosionProductConductivityRatio,
                      MinimumCorrosionProductConductivity);

@@ -261,6 +261,12 @@ public sealed class PoissonSolver2D : IPDESolver
 
     private double Conductivity(int i, int j) => _conductivity[Idx(i, j)];
 
+    /// <summary>
+    /// Computes the harmonic mean 2κ₁κ₂/(κ₁+κ₂) used to approximate the
+    /// conductivity at a cell face from neighbouring nodal conductivities.
+    /// The harmonic mean preserves interface flux continuity and is therefore
+    /// appropriate for diffusion-like operators such as ∇·(κ∇u).
+    /// </summary>
     private static double FaceConductivity(double first, double second)
     {
         double sum = first + second;
