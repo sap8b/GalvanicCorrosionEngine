@@ -475,4 +475,72 @@ public class SpeciesTransportTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => transport.Advance(0));
     }
+
+    [Fact]
+    public void SpeciesTransport_ApplyPrecipitationAndDeposition_ConvertsSupersaturatedElectrolyteNode()
+    {
+        var species = new Species("Fe2+", charge: 2, diffusionCoefficient: D, concentration: 1.0);
+        var profile = UniformProfile(9, 1.0);
+        var transport = new SpeciesTransport(
+            species,
+            domainLength: L,
+            gridPoints: 9,
+            initialProfile: profile,
+            leftBC: new DirichletBC(_ => 1.0),
+            rightBC: new DirichletBC(_ => 1.0),
+            timeStep: Dt);
+
+        var regions = new NodePhase[3, 3]
+        {
+            { NodePhase.Anode, NodePhase.Anode, NodePhase.Anode },
+            { NodePhase.Electrolyte, NodePhase.Electrolyte, NodePhase.Electrolyte },
+            { NodePhase.Cathode, NodePhase.Cathode, NodePhase.Cathode },
+        };
+        var mesh = new GeometryMesh(
+            XCoordinates: [0.0, 0.5, 1.0],
+            YCoordinates: [0.0, 0.5, 1.0],
+            Regions: regions);
+
+        double[] nodalRates = new double[9];
+        for (int j = 0; j < 3; j++)
+            nodalRates[j] = 1.0e6;
+
+        var model = new PrecipitationModel(
+            solubilityProduct: CorrosionProductBehavior.FerrousHydroxide.SolubilityProduct);
+
+        bool deposited = transport.ApplyPrecipitationAndDeposition(
+            mesh,
+            nodalRates,
+            dt: 1.0,
+            anodeMaterial: MaterialRegistry.MildSteel,
+            precipitationModel: model,
+            corrosionProductMaterial: CorrosionProductBehavior.FerrousHydroxide,
+            counterIonActivity: 1.0e-2,
+            counterIonStoichiometricExponent: 2);
+
+        Assert.True(deposited);
+        Assert.Equal(NodePhase.CorrosionProduct, mesh.Regions[1, 1]);
+        Assert.True(transport.ConcentrationProfile[1 * 3 + 1] < 1.0);
+    }
+}
+
+public class PrecipitationModelTests
+{
+    [Fact]
+    public void IsSupersaturated_TrueWhenIapExceedsThreshold()
+    {
+        var model = new PrecipitationModel(solubilityProduct: 1e-10, supersaturationThreshold: 1.2);
+        Assert.True(model.IsSupersaturated(1.3e-10));
+        Assert.False(model.IsSupersaturated(1.1e-10));
+    }
+
+    [Fact]
+    public void ComputePrecipitatedConcentration_ReturnsBoundedPositiveValue()
+    {
+        var model = new PrecipitationModel(solubilityProduct: 1e-10, supersaturationThreshold: 1.0, precipitationFraction: 0.5);
+        double precipitated = model.ComputePrecipitatedConcentration(localConcentration: 2.0, ionActivityProduct: 4e-10);
+
+        Assert.True(precipitated > 0.0);
+        Assert.True(precipitated < 2.0);
+    }
 }

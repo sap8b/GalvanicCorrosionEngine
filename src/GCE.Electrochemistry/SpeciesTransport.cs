@@ -1,3 +1,4 @@
+using GCE.Core;
 using GCE.Numerics.Solvers;
 
 namespace GCE.Electrochemistry;
@@ -28,8 +29,16 @@ namespace GCE.Electrochemistry;
 /// </remarks>
 public sealed class SpeciesTransport
 {
-    private readonly DiffusionSolver1D _solver;
+    // 365.25 d × 86,400 s/d.
+    private const double ApproximateSecondsPerYear = 3.15576e7;
+
+    private DiffusionSolver1D _solver;
     private double[] _profile;
+    private readonly IBoundaryCondition _leftBC;
+    private readonly IBoundaryCondition _rightBC;
+    private readonly double _timeStep;
+    private double _currentTime;
+    private bool _solverRequiresRebuild;
 
     // ── Constructors ──────────────────────────────────────────────────────────
 
@@ -78,17 +87,13 @@ public sealed class SpeciesTransport
         Species     = species;
         DomainLength = domainLength;
         GridPoints  = gridPoints;
+        _leftBC = leftBC;
+        _rightBC = rightBC;
+        _timeStep = timeStep;
 
         _profile = (double[])initialProfile.Clone();
 
-        _solver = new DiffusionSolver1D(
-            nx:               gridPoints,
-            domainLength:     domainLength,
-            diffusivity:      species.DiffusionCoefficient,
-            initialCondition: initialProfile,
-            leftBC:           leftBC,
-            rightBC:          rightBC,
-            dt:               timeStep);
+        _solver = CreateSolver(initialProfile, timeOffset: 0.0);
     }
 
     // ── Properties ────────────────────────────────────────────────────────────
@@ -106,7 +111,7 @@ public sealed class SpeciesTransport
     /// Gets the current simulation time (s) — the total time elapsed since
     /// construction.
     /// </summary>
-    public double CurrentTime => _solver.CurrentTime;
+    public double CurrentTime => _currentTime;
 
     /// <summary>
     /// Gets the current nodal concentration profile (mol/m³) as an array in
@@ -132,15 +137,140 @@ public sealed class SpeciesTransport
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(steps, 1, nameof(steps));
 
+        if (_solverRequiresRebuild)
+        {
+            _solver = CreateSolver(_profile, _currentTime);
+            _solverRequiresRebuild = false;
+        }
+
         var options = new PdeSolverOptions { MaxTimeSteps = steps };
         var result  = _solver.Solve(options);
 
         _profile = result.Solution ?? _profile;
+        _currentTime += result.Iterations * _timeStep;
 
         // Update the species' bulk concentration to the spatial average
         Species.Concentration = ComputeAverage(_profile);
 
         return result.Converged;
+    }
+
+    /// <summary>
+    /// Applies dissolved-metal source generation from adjacent dissolving anodes and
+    /// supersaturation-driven precipitation/deposition on electrolyte nodes.
+    /// </summary>
+    /// <returns>
+    /// <see langword="true"/> when at least one electrolyte node is converted to
+    /// <see cref="NodePhase.CorrosionProduct"/>; otherwise <see langword="false"/>.
+    /// </returns>
+    public bool ApplyPrecipitationAndDeposition(
+        GeometryMesh               mesh,
+        IReadOnlyList<double>      nodalCorrosionRates,
+        double                     dt,
+        IMaterial                  anodeMaterial,
+        PrecipitationModel         precipitationModel,
+        ICorrosionProductMaterial  corrosionProductMaterial,
+        double                     counterIonActivity,
+        int                        counterIonStoichiometricExponent = 1)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        ArgumentNullException.ThrowIfNull(nodalCorrosionRates);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dt, nameof(dt));
+        ArgumentNullException.ThrowIfNull(anodeMaterial);
+        ArgumentNullException.ThrowIfNull(precipitationModel);
+        ArgumentNullException.ThrowIfNull(corrosionProductMaterial);
+        ArgumentOutOfRangeException.ThrowIfNegative(counterIonActivity, nameof(counterIonActivity));
+        ArgumentOutOfRangeException.ThrowIfLessThan(counterIonStoichiometricExponent, 1, nameof(counterIonStoichiometricExponent));
+
+        int nodeCount = mesh.NodesX * mesh.NodesY;
+        if (nodalCorrosionRates.Count != nodeCount)
+            throw new ArgumentException($"nodalCorrosionRates must have length {nodeCount}.", nameof(nodalCorrosionRates));
+        if (_profile.Length != nodeCount)
+            throw new InvalidOperationException(
+                $"Species profile length ({_profile.Length}) must match mesh node count ({nodeCount}) for deposition coupling.");
+
+        bool anyDeposited = false;
+        bool concentrationChanged = false;
+
+        for (int i = 0; i < mesh.NodesX; i++)
+        {
+            for (int j = 0; j < mesh.NodesY; j++)
+            {
+                if (mesh.Regions[i, j] != NodePhase.Electrolyte)
+                    continue;
+
+                int idx = i * mesh.NodesY + j;
+
+                int adjacentAnodes = 0;
+                double adjacentRateSum = 0.0;
+                Span<(int X, int Y)> neighbors =
+                [
+                    (i - 1, j),
+                    (i + 1, j),
+                    (i, j - 1),
+                    (i, j + 1),
+                ];
+
+                foreach (var (x, y) in neighbors)
+                {
+                    if (x < 0 || x >= mesh.NodesX || y < 0 || y >= mesh.NodesY)
+                        continue;
+                    if (mesh.Regions[x, y] != NodePhase.Anode)
+                        continue;
+
+                    int neighborIndex = x * mesh.NodesY + y;
+                    adjacentRateSum += Math.Max(0.0, nodalCorrosionRates[neighborIndex]);
+                    adjacentAnodes++;
+                }
+
+                if (adjacentAnodes > 0)
+                {
+                    double averageAdjacentRate = adjacentRateSum / adjacentAnodes;
+                    double generatedConcentration =
+                        // rate(mm/yr) / (s/yr * 1000 mm/m) -> m/s, then ×ρ/M -> mol/(m³·s), then ×dt -> mol/m³.
+                        averageAdjacentRate / (ApproximateSecondsPerYear * 1000.0)
+                        * anodeMaterial.Density
+                        / anodeMaterial.MolarMass
+                        * dt;
+
+                    if (generatedConcentration > 0.0)
+                    {
+                        _profile[idx] += generatedConcentration;
+                        concentrationChanged = true;
+                    }
+                }
+
+                double iap = precipitationModel.ComputeIonActivityProduct(
+                    _profile[idx],
+                    counterIonActivity,
+                    counterIonStoichiometricExponent);
+
+                if (!precipitationModel.IsSupersaturated(iap))
+                    continue;
+
+                double precipitated = precipitationModel.ComputePrecipitatedConcentration(_profile[idx], iap);
+                if (precipitated > 0.0)
+                {
+                    _profile[idx] = Math.Max(_profile[idx] - precipitated, 0.0);
+                    concentrationChanged = true;
+                }
+
+                double saturationIndex = CorrosionProductBehavior.ComputeSaturationIndex(iap, corrosionProductMaterial);
+                if (saturationIndex >= precipitationModel.SupersaturationThreshold)
+                {
+                    mesh.Regions[i, j] = NodePhase.CorrosionProduct;
+                    anyDeposited = true;
+                }
+            }
+        }
+
+        if (concentrationChanged)
+        {
+            Species.Concentration = ComputeAverage(_profile);
+            _solverRequiresRebuild = true;
+        }
+
+        return anyDeposited;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -154,5 +284,23 @@ public sealed class SpeciesTransport
         foreach (double v in profile)
             sum += v;
         return sum / profile.Length;
+    }
+
+    private DiffusionSolver1D CreateSolver(double[] profile, double timeOffset) =>
+        new(
+            nx:               GridPoints,
+            domainLength:     DomainLength,
+            diffusivity:      Species.DiffusionCoefficient,
+            initialCondition: profile,
+            leftBC:           new TimeShiftedBoundaryCondition(_leftBC, timeOffset),
+            rightBC:          new TimeShiftedBoundaryCondition(_rightBC, timeOffset),
+            dt:               _timeStep);
+
+    private sealed class TimeShiftedBoundaryCondition(IBoundaryCondition inner, double timeOffset)
+        : IBoundaryCondition
+    {
+        public BoundaryConditionType Type => inner.Type;
+
+        public double Evaluate(double time) => inner.Evaluate(time + timeOffset);
     }
 }
