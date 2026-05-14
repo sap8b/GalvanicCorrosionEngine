@@ -1,3 +1,5 @@
+using GCE.Core;
+
 namespace GCE.Simulation;
 
 /// <summary>

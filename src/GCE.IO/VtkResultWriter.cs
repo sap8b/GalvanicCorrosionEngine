@@ -209,9 +209,9 @@ public sealed class VtkResultWriter : IResultWriter
 
             var flattened = new int[mesh.NodesX * mesh.NodesY];
             int idx = 0;
-            for (int j = 0; j < mesh.NodesY; j++)
+            for (int i = 0; i < mesh.NodesX; i++)
             {
-                for (int i = 0; i < mesh.NodesX; i++)
+                for (int j = 0; j < mesh.NodesY; j++)
                     flattened[idx++] = (int)snapshot[i, j];
             }
             WriteIntDataArray(writer, $"RegionId_t{s:D4}", flattened, indent);
