@@ -116,10 +116,10 @@ public sealed class CustomGeometry : IGeometryBuilder
             ys[j] = j * yStep;
 
         double midpoint = DefaultDomainSize / 2.0;
-        var regions = new int[nodesX, nodesY];
+        var regions = new NodePhase[nodesX, nodesY];
         for (int i = 0; i < nodesX; i++)
         {
-            int region = xs[i] <= midpoint ? 0 : 1;
+            NodePhase region = xs[i] <= midpoint ? NodePhase.Anode : NodePhase.Cathode;
             for (int j = 0; j < nodesY; j++)
                 regions[i, j] = region;
         }

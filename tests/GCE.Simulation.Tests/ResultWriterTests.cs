@@ -21,11 +21,11 @@ file static class WriterFixtures
     public static GeometryMesh TinyMesh()
     {
         // 3×2 grid, nodes at (0, 0.5, 1) × (0, 1).
-        var regions = new int[3, 2]
+        var regions = new NodePhase[3, 2]
         {
-            { 0, 0 },
-            { -1, -1 },
-            { 1, 1 },
+            { NodePhase.Anode, NodePhase.Anode },
+            { NodePhase.Electrolyte, NodePhase.Electrolyte },
+            { NodePhase.Cathode, NodePhase.Cathode },
         };
         return new GeometryMesh(
             XCoordinates: [0.0, 0.5, 1.0],

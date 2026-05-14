@@ -117,10 +117,10 @@ public sealed class SideBySideGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++)
             ys[j] = j * yStep;
 
-        var regions = new int[nodesX, nodesY];
+        var regions = new NodePhase[nodesX, nodesY];
         for (int i = 0; i < nodesX; i++)
         {
-            int region = xs[i] <= AnodeWidth ? 0 : 1;
+            NodePhase region = xs[i] <= AnodeWidth ? NodePhase.Anode : NodePhase.Cathode;
             for (int j = 0; j < nodesY; j++)
                 regions[i, j] = region;
         }

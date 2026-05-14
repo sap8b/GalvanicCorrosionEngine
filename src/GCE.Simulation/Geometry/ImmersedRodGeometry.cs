@@ -135,8 +135,8 @@ public sealed class ImmersedRodGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        int rodRegion  = _rodIsAnode ? 0 : 1;
-        int bathRegion = _rodIsAnode ? 1 : 0;
+        NodePhase rodRegion  = _rodIsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase bathRegion = _rodIsAnode ? NodePhase.Cathode : NodePhase.Anode;
 
         double halfW = BathWidth  / 2.0;
         double halfH = BathHeight / 2.0;
@@ -149,7 +149,7 @@ public sealed class ImmersedRodGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++) ys[j] = -halfH + j * yStep;
 
         double r2 = RodRadius * RodRadius;
-        var regions = new int[nodesX, nodesY];
+        var regions = new NodePhase[nodesX, nodesY];
         for (int i = 0; i < nodesX; i++)
             for (int j = 0; j < nodesY; j++)
                 regions[i, j] = xs[i] * xs[i] + ys[j] * ys[j] <= r2 ? rodRegion : bathRegion;

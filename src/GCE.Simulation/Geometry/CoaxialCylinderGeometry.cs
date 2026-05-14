@@ -133,8 +133,8 @@ public sealed class CoaxialCylinderGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        int innerRegion = _innerIsAnode ? 0 : 1;
-        int outerRegion = _innerIsAnode ? 1 : 0;
+        NodePhase innerRegion = _innerIsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase outerRegion = _innerIsAnode ? NodePhase.Cathode : NodePhase.Anode;
 
         double half  = OuterRadius;
         double xStep = 2.0 * OuterRadius / (nodesX - 1);
@@ -146,7 +146,7 @@ public sealed class CoaxialCylinderGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++) ys[j] = -half + j * yStep;
 
         double r2 = InnerRadius * InnerRadius;
-        var regions = new int[nodesX, nodesY];
+        var regions = new NodePhase[nodesX, nodesY];
         for (int i = 0; i < nodesX; i++)
             for (int j = 0; j < nodesY; j++)
                 regions[i, j] = xs[i] * xs[i] + ys[j] * ys[j] <= r2 ? innerRegion : outerRegion;
