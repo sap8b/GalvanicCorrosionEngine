@@ -1,3 +1,5 @@
+using GCE.Core;
+
 namespace GCE.Simulation;
 
 /// <summary>
@@ -59,6 +61,37 @@ public sealed class SimulationResult
     /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
     /// </summary>
     public double[]? NodeMassLoss { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step 2-D phase maps.
+    /// Each entry is a <c>NodesX × NodesY</c> phase snapshot aligned with
+    /// <see cref="TimePoints"/>. <see langword="null"/> when no
+    /// <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public IReadOnlyList<NodePhase[,]>? PhaseSnapshots { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step cumulative dissolved-mass maps (kg per unit depth),
+    /// flattened in row-major order (index = i*NodesY + j) and aligned with
+    /// <see cref="TimePoints"/>. <see langword="null"/> when no
+    /// <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public IReadOnlyList<double[]>? NodeMassLossSnapshots { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step recession-depth maps (m), flattened in row-major order
+    /// (index = i*NodesY + j) and aligned with <see cref="TimePoints"/>.
+    /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public IReadOnlyList<double[]>? RecessionDepthSnapshots { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step surface recession profiles (m) as a function of x-position.
+    /// Each entry contains one depth value per x-node and is aligned with
+    /// <see cref="TimePoints"/>. <see langword="null"/> when no
+    /// <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public IReadOnlyList<double[]>? SurfaceProfileHistory { get; init; }
 
     /// <summary>
     /// Gets the number of outer geometric steps taken during the simulation.

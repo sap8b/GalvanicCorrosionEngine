@@ -1,3 +1,5 @@
+using GCE.Core;
+
 namespace GCE.Simulation;
 
 /// <summary>
@@ -48,4 +50,34 @@ public sealed class SimulationState
     /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
     /// </summary>
     public double[]? NodeMassLoss { get; init; }
+
+    /// <summary>
+    /// Gets the current <c>NodesX × NodesY</c> material-phase map at the checkpoint time.
+    /// <see langword="null"/> when no <see cref="GeometryMesh"/> was provided.
+    /// </summary>
+    public NodePhase[,]? Regions { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step 2-D phase maps recorded up to and including this checkpoint.
+    /// </summary>
+    public IReadOnlyList<NodePhase[,]>? PhaseSnapshots { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step cumulative dissolved-mass maps (kg per unit depth),
+    /// flattened in row-major order (index = i*NodesY + j), recorded up to and including
+    /// this checkpoint.
+    /// </summary>
+    public IReadOnlyList<double[]>? NodeMassLossSnapshots { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step recession-depth maps (m), flattened in row-major order
+    /// (index = i*NodesY + j), recorded up to and including this checkpoint.
+    /// </summary>
+    public IReadOnlyList<double[]>? RecessionDepthSnapshots { get; init; }
+
+    /// <summary>
+    /// Gets the per-time-step surface recession profiles (m) as a function of x-position,
+    /// recorded up to and including this checkpoint.
+    /// </summary>
+    public IReadOnlyList<double[]>? SurfaceProfileHistory { get; init; }
 }

@@ -56,6 +56,10 @@ public sealed class SimulationEngine : ISimulationRunner
             priorPotentials:  [],
             priorRates:       [],
             priorNodeMassLoss: null,
+            priorPhaseSnapshots: null,
+            priorNodeMassLossSnapshots: null,
+            priorRecessionDepthSnapshots: null,
+            priorSurfaceProfileHistory: null,
             parameters:       parameters,
             progress:         null,
             checkpoint:       out _,
@@ -88,6 +92,10 @@ public sealed class SimulationEngine : ISimulationRunner
             priorPotentials:  [],
             priorRates:       [],
             priorNodeMassLoss: null,
+            priorPhaseSnapshots: null,
+            priorNodeMassLossSnapshots: null,
+            priorRecessionDepthSnapshots: null,
+            priorSurfaceProfileHistory: null,
             parameters:       parameters,
             progress:         progress,
             checkpoint:       out checkpoint,
@@ -108,6 +116,9 @@ public sealed class SimulationEngine : ISimulationRunner
         ArgumentNullException.ThrowIfNull(checkpoint);
         ArgumentNullException.ThrowIfNull(parameters);
 
+        if (checkpoint.Regions is not null && parameters.Mesh is not null)
+            parameters.Mesh.Regions = CloneRegions(checkpoint.Regions);
+
         return RunCoreAsync(
             startStep:        checkpoint.CompletedSteps,
             startTime:        checkpoint.CurrentTime,
@@ -116,6 +127,10 @@ public sealed class SimulationEngine : ISimulationRunner
             priorPotentials:  checkpoint.MixedPotentials,
             priorRates:       checkpoint.CorrosionRates,
             priorNodeMassLoss: checkpoint.NodeMassLoss,
+            priorPhaseSnapshots: checkpoint.PhaseSnapshots,
+            priorNodeMassLossSnapshots: checkpoint.NodeMassLossSnapshots,
+            priorRecessionDepthSnapshots: checkpoint.RecessionDepthSnapshots,
+            priorSurfaceProfileHistory: checkpoint.SurfaceProfileHistory,
             parameters:       parameters,
             progress:         progress,
             checkpoint:       out _,
@@ -136,6 +151,10 @@ public sealed class SimulationEngine : ISimulationRunner
         IReadOnlyList<double>          priorPotentials,
         IReadOnlyList<double>          priorRates,
         double[]?                      priorNodeMassLoss,
+        IReadOnlyList<NodePhase[,]>?   priorPhaseSnapshots,
+        IReadOnlyList<double[]>?       priorNodeMassLossSnapshots,
+        IReadOnlyList<double[]>?       priorRecessionDepthSnapshots,
+        IReadOnlyList<double[]>?       priorSurfaceProfileHistory,
         SimulationParameters           parameters,
         IProgress<SimulationProgress>? progress,
         out SimulationState?           checkpoint,
@@ -147,6 +166,31 @@ public sealed class SimulationEngine : ISimulationRunner
         var times      = new List<double>(priorTimes);
         var potentials = new List<double>(priorPotentials);
         var rates      = new List<double>(priorRates);
+        var phaseSnapshots = new List<NodePhase[,]>();
+        var nodeMassLossSnapshots = new List<double[]>();
+        var recessionDepthSnapshots = new List<double[]>();
+        var surfaceProfileHistory = new List<double[]>();
+
+        if (priorPhaseSnapshots is not null)
+        {
+            foreach (var snapshot in priorPhaseSnapshots)
+                phaseSnapshots.Add(CloneRegions(snapshot));
+        }
+        if (priorNodeMassLossSnapshots is not null)
+        {
+            foreach (var snapshot in priorNodeMassLossSnapshots)
+                nodeMassLossSnapshots.Add((double[])snapshot.Clone());
+        }
+        if (priorRecessionDepthSnapshots is not null)
+        {
+            foreach (var snapshot in priorRecessionDepthSnapshots)
+                recessionDepthSnapshots.Add((double[])snapshot.Clone());
+        }
+        if (priorSurfaceProfileHistory is not null)
+        {
+            foreach (var snapshot in priorSurfaceProfileHistory)
+                surfaceProfileHistory.Add((double[])snapshot.Clone());
+        }
 
         var ode           = BuildOde(parameters);
         double nominalDt  = parameters.DurationSeconds / parameters.TimeSteps;
@@ -212,6 +256,19 @@ public sealed class SimulationEngine : ISimulationRunner
             pHList?.Add(currentpH);
         }
 
+        if (parameters.Mesh is not null && nodeMassLoss is not null
+            && (phaseSnapshots.Count == 0 || nodeMassLossSnapshots.Count == 0))
+        {
+            CaptureSpatialSnapshot(
+                parameters.Mesh,
+                nodeMassLoss,
+                parameters.Pair.Anode,
+                phaseSnapshots,
+                nodeMassLossSnapshots,
+                recessionDepthSnapshots,
+                surfaceProfileHistory);
+        }
+
         double currentDt = nominalDt;
 
         for (int step = startStep; step < parameters.TimeSteps; step++)
@@ -227,6 +284,11 @@ public sealed class SimulationEngine : ISimulationRunner
                     MixedPotentials  = potentials.AsReadOnly(),
                     CorrosionRates   = rates.AsReadOnly(),
                     NodeMassLoss     = nodeMassLoss is not null ? (double[])nodeMassLoss.Clone() : null,
+                    Regions          = parameters.Mesh is not null ? CloneRegions(parameters.Mesh.Regions) : null,
+                    PhaseSnapshots   = phaseSnapshots.AsReadOnly(),
+                    NodeMassLossSnapshots = nodeMassLossSnapshots.AsReadOnly(),
+                    RecessionDepthSnapshots = recessionDepthSnapshots.AsReadOnly(),
+                    SurfaceProfileHistory = surfaceProfileHistory.AsReadOnly(),
                 };
                 break;
             }
@@ -367,9 +429,18 @@ public sealed class SimulationEngine : ISimulationRunner
                             precipitationModel,
                             parameters.CorrosionProductMaterial,
                             hydroxideActivity,
-                            hydroxideExponent);
+                             hydroxideExponent);
                     }
                 }
+
+                CaptureSpatialSnapshot(
+                    parameters.Mesh,
+                    nodeMassLoss,
+                    parameters.Pair.Anode,
+                    phaseSnapshots,
+                    nodeMassLossSnapshots,
+                    recessionDepthSnapshots,
+                    surfaceProfileHistory);
             }
 
             double rate = ComputeCorrosionRate(parameters, t, potential);
@@ -443,6 +514,10 @@ public sealed class SimulationEngine : ISimulationRunner
             SpeciesConcentrationHistory = speciesConcentrationHistory,
             pHHistory            = pHList?.AsReadOnly(),
             NodeMassLoss         = nodeMassLoss,
+            PhaseSnapshots       = phaseSnapshots.Count > 0 ? phaseSnapshots.AsReadOnly() : null,
+            NodeMassLossSnapshots = nodeMassLossSnapshots.Count > 0 ? nodeMassLossSnapshots.AsReadOnly() : null,
+            RecessionDepthSnapshots = recessionDepthSnapshots.Count > 0 ? recessionDepthSnapshots.AsReadOnly() : null,
+            SurfaceProfileHistory = surfaceProfileHistory.Count > 0 ? surfaceProfileHistory.AsReadOnly() : null,
             GeoStepCount         = geoEvolver?.TotalGeoSteps ?? 0,
         };
 
@@ -592,6 +667,73 @@ public sealed class SimulationEngine : ISimulationRunner
                     mesh.Regions[i, j] = NodePhase.Electrolyte;
             }
         }
+    }
+
+    private static void CaptureSpatialSnapshot(
+        GeometryMesh mesh,
+        double[] nodeMassLoss,
+        IMaterial anodeMaterial,
+        List<NodePhase[,]> phaseSnapshots,
+        List<double[]> nodeMassLossSnapshots,
+        List<double[]> recessionDepthSnapshots,
+        List<double[]> surfaceProfileHistory)
+    {
+        phaseSnapshots.Add(CloneRegions(mesh.Regions));
+        nodeMassLossSnapshots.Add((double[])nodeMassLoss.Clone());
+
+        double[] depthMap = ComputeRecessionDepthMap(mesh, nodeMassLoss, anodeMaterial);
+        recessionDepthSnapshots.Add(depthMap);
+        surfaceProfileHistory.Add(ComputeSurfaceProfile(mesh, depthMap));
+    }
+
+    private static double[] ComputeRecessionDepthMap(
+        GeometryMesh mesh,
+        double[] nodeMassLoss,
+        IMaterial anodeMaterial)
+    {
+        int nx = mesh.NodesX;
+        int ny = mesh.NodesY;
+        double dx = nx > 1 ? (mesh.XCoordinates[nx - 1] - mesh.XCoordinates[0]) / (nx - 1) : 1.0;
+        double dy = ny > 1 ? (mesh.YCoordinates[ny - 1] - mesh.YCoordinates[0]) / (ny - 1) : 1.0;
+        double area = dx * dy;
+        double denom = anodeMaterial.Density * area;
+        double[] depthMap = new double[nodeMassLoss.Length];
+        if (denom <= 0.0)
+            return depthMap;
+
+        for (int idx = 0; idx < nodeMassLoss.Length; idx++)
+            depthMap[idx] = nodeMassLoss[idx] / denom;
+        return depthMap;
+    }
+
+    private static double[] ComputeSurfaceProfile(GeometryMesh mesh, double[] depthMap)
+    {
+        int nx = mesh.NodesX;
+        int ny = mesh.NodesY;
+        var profile = new double[nx];
+        for (int i = 0; i < nx; i++)
+        {
+            double maxDepth = 0.0;
+            for (int j = 0; j < ny; j++)
+            {
+                int idx = i * ny + j;
+                if (depthMap[idx] > maxDepth)
+                    maxDepth = depthMap[idx];
+            }
+            profile[i] = maxDepth;
+        }
+        return profile;
+    }
+
+    private static NodePhase[,] CloneRegions(NodePhase[,] regions)
+    {
+        int nx = regions.GetLength(0);
+        int ny = regions.GetLength(1);
+        var clone = new NodePhase[nx, ny];
+        for (int i = 0; i < nx; i++)
+            for (int j = 0; j < ny; j++)
+                clone[i, j] = regions[i, j];
+        return clone;
     }
 
     private static bool IsLikelyAnodicMetalIon(Species species, IMaterial anodeMaterial)
