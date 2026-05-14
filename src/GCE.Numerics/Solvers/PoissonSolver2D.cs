@@ -268,6 +268,8 @@ public sealed class PoissonSolver2D : IPDESolver
     private static double FaceConductivity(double first, double second)
     {
         double sum = first + second;
+        if (Math.Abs(sum) < 1e-15)
+            throw new InvalidOperationException("Face conductivity requires a positive conductivity sum.");
         return 2.0 * first * second / sum;
     }
 
@@ -356,7 +358,10 @@ public sealed class PoissonSolver2D : IPDESolver
     {
         double denom = (kW + kE) / _dx2 + (kS + kN) / _dy2;
         if (denom <= 0.0)
-            return 0.0;
+        {
+            throw new InvalidOperationException(
+                "Gauss-Seidel update requires a positive conductivity-weighted denominator.");
+        }
 
         return ((kW * uW + kE * uE) / _dx2
               + (kS * uS + kN * uN) / _dy2
