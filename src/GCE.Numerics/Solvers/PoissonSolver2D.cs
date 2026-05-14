@@ -65,6 +65,7 @@ public sealed class PoissonSolver2D : IPDESolver
     // ── Precomputed source term (same layout as _u) ───────────────────────────
 
     private readonly double[] _f;
+    private readonly double[] _conductivity;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -87,6 +88,12 @@ public sealed class PoissonSolver2D : IPDESolver
     /// Optional flat array (row-major, length nx·ny) used as the initial guess for
     /// the iterative solver.  When <see langword="null"/> the solution is initialised
     /// to zero everywhere (Dirichlet nodes are overwritten immediately).
+    /// </param>
+    /// <param name="conductivityMap">
+    /// Optional flat array (row-major, length nx·ny) of positive nodal
+    /// conductivities κ(x,y) for the variable-coefficient equation
+    /// ∇·(κ∇u) = f.  When <see langword="null"/> a uniform conductivity of 1 is
+    /// assumed everywhere, recovering the standard Poisson equation.
     /// </param>
     /// <param name="omega">
     /// SOR relaxation parameter ω ∈ [1, 2].  ω = 1 gives standard Gauss–Seidel.
@@ -112,6 +119,7 @@ public sealed class PoissonSolver2D : IPDESolver
         IBoundaryCondition            topBC,
         Func<double, double, double>  source,
         double[]?                     initialGuess = null,
+        double[]?                     conductivityMap = null,
         double                        omega        = 1.0)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(nx, 2, nameof(nx));
@@ -130,6 +138,23 @@ public sealed class PoissonSolver2D : IPDESolver
             throw new ArgumentException(
                 $"initialGuess must have length {nx * ny} (nx × ny).",
                 nameof(initialGuess));
+        if (conductivityMap is not null && conductivityMap.Length != nx * ny)
+            throw new ArgumentException(
+                $"conductivityMap must have length {nx * ny} (nx × ny).",
+                nameof(conductivityMap));
+        if (conductivityMap is not null)
+        {
+            for (int idx = 0; idx < conductivityMap.Length; idx++)
+            {
+                double conductivity = conductivityMap[idx];
+                if (!double.IsFinite(conductivity) || conductivity <= 0.0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(conductivityMap),
+                        $"conductivityMap[{idx}] must be a finite, positive value.");
+                }
+            }
+        }
 
         _nx      = nx;
         _ny      = ny;
@@ -146,6 +171,12 @@ public sealed class PoissonSolver2D : IPDESolver
         _u = initialGuess is not null
             ? (double[])initialGuess.Clone()
             : new double[nx * ny];
+
+        _conductivity = conductivityMap is not null
+            ? (double[])conductivityMap.Clone()
+            : new double[nx * ny];
+        if (conductivityMap is null)
+            Array.Fill(_conductivity, 1.0);
 
         // Precompute source at every grid node (source is time-independent).
         _f = new double[nx * ny];
@@ -226,6 +257,22 @@ public sealed class PoissonSolver2D : IPDESolver
 
     private int Idx(int i, int j) => i * _ny + j;
 
+    private double Conductivity(int i, int j) => _conductivity[Idx(i, j)];
+
+    /// <summary>
+    /// Computes the harmonic mean 2κ₁κ₂/(κ₁+κ₂) used to approximate the
+    /// conductivity at a cell face from neighbouring nodal conductivities.
+    /// The harmonic mean preserves interface flux continuity and is therefore
+    /// appropriate for diffusion-like operators such as ∇·(κ∇u).
+    /// </summary>
+    private static double FaceConductivity(double first, double second)
+    {
+        double sum = first + second;
+        if (Math.Abs(sum) < 1e-15)
+            throw new InvalidOperationException("Face conductivity requires a positive conductivity sum.");
+        return 2.0 * first * second / sum;
+    }
+
     /// <summary>
     /// Sets Dirichlet boundary values in the initial solution.
     /// Left/right BCs own the full column; bottom/top BCs own interior x-nodes.
@@ -285,23 +332,42 @@ public sealed class PoissonSolver2D : IPDESolver
 
     private void SweepInterior(int i, int j, ref double residual)
     {
+        double conductivity = Conductivity(i, j);
         double uGS = GaussSeidelFormula(
             uW: _u[Idx(i - 1, j)],
             uE: _u[Idx(i + 1, j)],
             uS: _u[Idx(i, j - 1)],
             uN: _u[Idx(i, j + 1)],
+            kW: FaceConductivity(conductivity, Conductivity(i - 1, j)),
+            kE: FaceConductivity(conductivity, Conductivity(i + 1, j)),
+            kS: FaceConductivity(conductivity, Conductivity(i, j - 1)),
+            kN: FaceConductivity(conductivity, Conductivity(i, j + 1)),
             f:  _f[Idx(i, j)]);
         ApplySOR(i, j, uGS, ref residual);
     }
 
     /// <summary>
-    /// Standard 5-point Gauss–Seidel formula for the Poisson equation:
-    ///   u_{i,j} = ( Δy²(uW+uE) + Δx²(uS+uN) − Δx²Δy²·f ) / (2(Δx²+Δy²))
+    /// Standard 5-point Gauss–Seidel formula for the variable-coefficient
+    /// Poisson equation:
+    ///   (κe(uE-uP) - κw(uP-uW)) / Δx² + (κn(uN-uP) - κs(uP-uS)) / Δy² = f
     /// </summary>
     private double GaussSeidelFormula(
-        double uW, double uE, double uS, double uN, double f) =>
-        (_dy2 * (uW + uE) + _dx2 * (uS + uN) - _dx2 * _dy2 * f)
-        / (2.0 * (_dx2 + _dy2));
+        double uW, double uE, double uS, double uN,
+        double kW, double kE, double kS, double kN,
+        double f)
+    {
+        double denom = (kW + kE) / _dx2 + (kS + kN) / _dy2;
+        if (denom <= 0.0)
+        {
+            throw new InvalidOperationException(
+                "Gauss-Seidel update requires a positive conductivity-weighted denominator.");
+        }
+
+        return ((kW * uW + kE * uE) / _dx2
+              + (kS * uS + kN * uN) / _dy2
+              - f)
+             / denom;
+    }
 
     // ── Left column (i = 0) ───────────────────────────────────────────────────
 
@@ -329,17 +395,32 @@ public sealed class PoissonSolver2D : IPDESolver
     /// </summary>
     private double LeftBoundaryGS(int j, double coord, double uE, double uS, double uN)
     {
-        double f = _f[Idx(0, j)];
+        double f            = _f[Idx(0, j)];
+        double conductivity = Conductivity(0, j);
+        double kE           = FaceConductivity(conductivity, Conductivity(1, j));
+        double kS           = j > 0
+            ? FaceConductivity(conductivity, Conductivity(0, j - 1))
+            : conductivity;
+        double kN           = j < _ny - 1
+            ? FaceConductivity(conductivity, Conductivity(0, j + 1))
+            : conductivity;
 
         if (_leftBC.Type == BoundaryConditionType.Neumann)
         {
             // Outward normal at x = 0 is −x; ∂u/∂n = −∂u/∂x = q
             // Ghost: u[−1,j] = u[1,j] + 2·Δx·q
-            // ⟹ u[0,j] = (Δy²·(2·uE + 2·Δx·q) + Δx²·(uS+uN) − Δx²Δy²·f)
-            //              / (2·(Δx²+Δy²))
             double q = _leftBC.Evaluate(coord);
-            return (_dy2 * (2.0 * uE + 2.0 * _dx * q) + _dx2 * (uS + uN) - _dx2 * _dy2 * f)
-                   / (2.0 * (_dx2 + _dy2));
+            double uW = uE + 2.0 * _dx * q;
+            return GaussSeidelFormula(
+                uW: uW,
+                uE: uE,
+                uS: uS,
+                uN: uN,
+                kW: conductivity,
+                kE: kE,
+                kS: kS,
+                kN: kN,
+                f:  f);
         }
         else // Robin
         {
@@ -351,11 +432,13 @@ public sealed class PoissonSolver2D : IPDESolver
             if (Math.Abs(beta) < 1e-15)
                 return Math.Abs(alpha) < 1e-15 ? 0.0 : gamma / alpha;
 
-            // k = 2·Δx/β; denominator = 2·(Δx²+Δy²) + k·α·Δy²
-            double k     = 2.0 * _dx / beta;
-            double denom = 2.0 * (_dx2 + _dy2) + k * alpha * _dy2;
-            double rhs   = 2.0 * _dy2 * uE + k * gamma * _dy2
-                         + _dx2 * (uS + uN) - _dx2 * _dy2 * f;
+            double denom = (kE + conductivity) / _dx2
+                         + (kS + kN) / _dy2
+                         + 2.0 * conductivity * alpha / (beta * _dx);
+            double rhs   = (kE + conductivity) * uE / _dx2
+                         + (kS * uS + kN * uN) / _dy2
+                         + 2.0 * conductivity * gamma / (beta * _dx)
+                         - f;
             return rhs / denom;
         }
     }
@@ -387,15 +470,33 @@ public sealed class PoissonSolver2D : IPDESolver
     /// </summary>
     private double RightBoundaryGS(int j, double coord, double uW, double uS, double uN)
     {
-        double f = _f[Idx(_nx - 1, j)];
+        int    i            = _nx - 1;
+        double f            = _f[Idx(i, j)];
+        double conductivity = Conductivity(i, j);
+        double kW           = FaceConductivity(conductivity, Conductivity(i - 1, j));
+        double kS           = j > 0
+            ? FaceConductivity(conductivity, Conductivity(i, j - 1))
+            : conductivity;
+        double kN           = j < _ny - 1
+            ? FaceConductivity(conductivity, Conductivity(i, j + 1))
+            : conductivity;
 
         if (_rightBC.Type == BoundaryConditionType.Neumann)
         {
             // ∂u/∂n = q at x = Lx; ∂u/∂n = ∂u/∂x = q
             // Ghost: u[nx,j] = u[nx−2,j] + 2·Δx·q
             double q = _rightBC.Evaluate(coord);
-            return (_dy2 * (2.0 * uW + 2.0 * _dx * q) + _dx2 * (uS + uN) - _dx2 * _dy2 * f)
-                   / (2.0 * (_dx2 + _dy2));
+            double uE = uW + 2.0 * _dx * q;
+            return GaussSeidelFormula(
+                uW: uW,
+                uE: uE,
+                uS: uS,
+                uN: uN,
+                kW: kW,
+                kE: conductivity,
+                kS: kS,
+                kN: kN,
+                f:  f);
         }
         else // Robin
         {
@@ -407,10 +508,13 @@ public sealed class PoissonSolver2D : IPDESolver
             if (Math.Abs(beta) < 1e-15)
                 return Math.Abs(alpha) < 1e-15 ? 0.0 : gamma / alpha;
 
-            double k     = 2.0 * _dx / beta;
-            double denom = 2.0 * (_dx2 + _dy2) + k * alpha * _dy2;
-            double rhs   = 2.0 * _dy2 * uW + k * gamma * _dy2
-                         + _dx2 * (uS + uN) - _dx2 * _dy2 * f;
+            double denom = (kW + conductivity) / _dx2
+                         + (kS + kN) / _dy2
+                         + 2.0 * conductivity * alpha / (beta * _dx);
+            double rhs   = (kW + conductivity) * uW / _dx2
+                         + (kS * uS + kN * uN) / _dy2
+                         + 2.0 * conductivity * gamma / (beta * _dx)
+                         - f;
             return rhs / denom;
         }
     }
@@ -441,14 +545,27 @@ public sealed class PoissonSolver2D : IPDESolver
     /// </summary>
     private double BottomBoundaryGS(int i, double coord, double uW, double uE, double uN)
     {
-        double f = _f[Idx(i, 0)];
+        double f            = _f[Idx(i, 0)];
+        double conductivity = Conductivity(i, 0);
+        double kW           = FaceConductivity(conductivity, Conductivity(i - 1, 0));
+        double kE           = FaceConductivity(conductivity, Conductivity(i + 1, 0));
+        double kN           = FaceConductivity(conductivity, Conductivity(i, 1));
 
         if (_bottomBC.Type == BoundaryConditionType.Neumann)
         {
             // Ghost: u[i,−1] = u[i,1] + 2·Δy·q
             double q = _bottomBC.Evaluate(coord);
-            return (_dy2 * (uW + uE) + _dx2 * (2.0 * uN + 2.0 * _dy * q) - _dx2 * _dy2 * f)
-                   / (2.0 * (_dx2 + _dy2));
+            double uS = uN + 2.0 * _dy * q;
+            return GaussSeidelFormula(
+                uW: uW,
+                uE: uE,
+                uS: uS,
+                uN: uN,
+                kW: kW,
+                kE: kE,
+                kS: conductivity,
+                kN: kN,
+                f:  f);
         }
         else // Robin
         {
@@ -460,11 +577,13 @@ public sealed class PoissonSolver2D : IPDESolver
             if (Math.Abs(beta) < 1e-15)
                 return Math.Abs(alpha) < 1e-15 ? 0.0 : gamma / alpha;
 
-            // k = 2·Δy/β; denominator = 2·(Δx²+Δy²) + k·α·Δx²
-            double k     = 2.0 * _dy / beta;
-            double denom = 2.0 * (_dx2 + _dy2) + k * alpha * _dx2;
-            double rhs   = _dy2 * (uW + uE) + 2.0 * _dx2 * uN
-                         + k * gamma * _dx2 - _dx2 * _dy2 * f;
+            double denom = (kW + kE) / _dx2
+                         + (kN + conductivity) / _dy2
+                         + 2.0 * conductivity * alpha / (beta * _dy);
+            double rhs   = (kW * uW + kE * uE) / _dx2
+                         + (kN + conductivity) * uN / _dy2
+                         + 2.0 * conductivity * gamma / (beta * _dy)
+                         - f;
             return rhs / denom;
         }
     }
@@ -496,14 +615,28 @@ public sealed class PoissonSolver2D : IPDESolver
     /// </summary>
     private double TopBoundaryGS(int i, double coord, double uW, double uE, double uS)
     {
-        double f = _f[Idx(i, _ny - 1)];
+        int    j            = _ny - 1;
+        double f            = _f[Idx(i, j)];
+        double conductivity = Conductivity(i, j);
+        double kW           = FaceConductivity(conductivity, Conductivity(i - 1, j));
+        double kE           = FaceConductivity(conductivity, Conductivity(i + 1, j));
+        double kS           = FaceConductivity(conductivity, Conductivity(i, j - 1));
 
         if (_topBC.Type == BoundaryConditionType.Neumann)
         {
             // Ghost: u[i,ny] = u[i,ny−2] + 2·Δy·q
             double q = _topBC.Evaluate(coord);
-            return (_dy2 * (uW + uE) + _dx2 * (2.0 * uS + 2.0 * _dy * q) - _dx2 * _dy2 * f)
-                   / (2.0 * (_dx2 + _dy2));
+            double uN = uS + 2.0 * _dy * q;
+            return GaussSeidelFormula(
+                uW: uW,
+                uE: uE,
+                uS: uS,
+                uN: uN,
+                kW: kW,
+                kE: kE,
+                kS: kS,
+                kN: conductivity,
+                f:  f);
         }
         else // Robin
         {
@@ -515,10 +648,13 @@ public sealed class PoissonSolver2D : IPDESolver
             if (Math.Abs(beta) < 1e-15)
                 return Math.Abs(alpha) < 1e-15 ? 0.0 : gamma / alpha;
 
-            double k     = 2.0 * _dy / beta;
-            double denom = 2.0 * (_dx2 + _dy2) + k * alpha * _dx2;
-            double rhs   = _dy2 * (uW + uE) + 2.0 * _dx2 * uS
-                         + k * gamma * _dx2 - _dx2 * _dy2 * f;
+            double denom = (kW + kE) / _dx2
+                         + (kS + conductivity) / _dy2
+                         + 2.0 * conductivity * alpha / (beta * _dy);
+            double rhs   = (kW * uW + kE * uE) / _dx2
+                         + (kS + conductivity) * uS / _dy2
+                         + 2.0 * conductivity * gamma / (beta * _dy)
+                         - f;
             return rhs / denom;
         }
     }

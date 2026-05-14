@@ -32,6 +32,21 @@ public class SpatialSolverTests
             Regions: regions);
     }
 
+    private static GeometryMesh PhaseLayeredMesh()
+    {
+        var regions = new NodePhase[5, 5];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 5; j++)
+                regions[i, j] = j < 3 ? NodePhase.Electrolyte : NodePhase.CorrosionProduct;
+        }
+
+        return new GeometryMesh(
+            XCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
+            YCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
+            Regions: regions);
+    }
+
     private static SimulationParameters MakeParams(GeometryMesh mesh) =>
         new SimulationParameters(
             new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
@@ -132,5 +147,20 @@ public class SpatialSolverTests
 
         Assert.Equal(100, result.NodalPotentials!.Length); // 10×10
         Assert.Equal(100, result.NodalCorrosionRates!.Length);
+    }
+
+    [Fact]
+    public void Run_WithCorrosionProductPhase_LowersLocalCorrosionRate()
+    {
+        var result = Engine.Run(MakeParams(PhaseLayeredMesh()));
+
+        Assert.NotNull(result.NodalCorrosionRates);
+
+        const int ny = 5;
+        double electrolyteRate       = result.NodalCorrosionRates![2 * ny + 1];
+        double corrosionProductRate  = result.NodalCorrosionRates[2 * ny + 4];
+
+        Assert.True(electrolyteRate > corrosionProductRate,
+            $"Expected electrolyte rate {electrolyteRate} to exceed corrosion-product rate {corrosionProductRate}.");
     }
 }

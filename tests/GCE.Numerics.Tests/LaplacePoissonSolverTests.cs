@@ -30,6 +30,19 @@ public class PoissonSolver2DConstructionTests
     }
 
     [Fact]
+    public void Constructor_WithConductivityMap_DoesNotThrow()
+    {
+        var conductivityMap = Enumerable.Repeat(1.0, 25).ToArray();
+        var solver = new PoissonSolver2D(
+            5, 5, 1.0, 1.0,
+            new DirichletBC(0.0), new DirichletBC(1.0),
+            new DirichletBC(0.0), new DirichletBC(0.0),
+            (_, _) => 0.0,
+            conductivityMap: conductivityMap);
+        Assert.NotNull(solver);
+    }
+
+    [Fact]
     public void Constructor_WithSorOmega_DoesNotThrow()
     {
         var solver = new PoissonSolver2D(
@@ -162,6 +175,31 @@ public class PoissonSolver2DConstructionTests
                 initialGuess: new double[10])); // wrong: 10 ≠ 25
     }
 
+    [Fact]
+    public void Constructor_WrongConductivityMapLength_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new PoissonSolver2D(5, 5, 1.0, 1.0,
+                new DirichletBC(0.0), new DirichletBC(0.0),
+                new DirichletBC(0.0), new DirichletBC(0.0),
+                (_, _) => 0.0,
+                conductivityMap: new double[10]));
+    }
+
+    [Fact]
+    public void Constructor_NonPositiveConductivity_ThrowsArgumentOutOfRangeException()
+    {
+        double[] conductivityMap = Enumerable.Repeat(1.0, 25).ToArray();
+        conductivityMap[12] = 0.0;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PoissonSolver2D(5, 5, 1.0, 1.0,
+                new DirichletBC(0.0), new DirichletBC(0.0),
+                new DirichletBC(0.0), new DirichletBC(0.0),
+                (_, _) => 0.0,
+                conductivityMap: conductivityMap));
+    }
+
     private static PoissonSolver2D MakeSolver(int nx = 5, int ny = 5)
         => new(nx, ny, 1.0, 1.0,
                new DirichletBC(0.0), new DirichletBC(1.0),
@@ -212,6 +250,18 @@ public class LaplaceSolver2DConstructionTests
             new DirichletBC(0.0), new DirichletBC(1.0),
             new DirichletBC(0.0), new DirichletBC(0.0),
             initialGuess: ig);
+        Assert.NotNull(solver);
+    }
+
+    [Fact]
+    public void Constructor_WithConductivityMap_DoesNotThrow()
+    {
+        var conductivityMap = Enumerable.Repeat(1.0, 25).ToArray();
+        var solver = new LaplaceSolver2D(
+            5, 5, 1.0, 1.0,
+            new DirichletBC(0.0), new DirichletBC(1.0),
+            new DirichletBC(0.0), new DirichletBC(0.0),
+            conductivityMap: conductivityMap);
         Assert.NotNull(solver);
     }
 
@@ -450,6 +500,43 @@ public class LaplaceSolver2DAnalyticalTests
             double tol   = Math.Max(1e-3, 0.01 * Math.Abs(exact));
             Assert.True(Math.Abs(got - exact) < tol,
                 $"Node ({i},{j}): exact={exact:G6}, got={got:G6}, diff={got-exact:G3}");
+        }
+    }
+
+    [Fact]
+    public void Solve_WithConductivityVaryingByRow_PreservesLinearSolution()
+    {
+        const int nx = 21, ny = 21;
+        double    dx = 1.0 / (nx - 1);
+
+        double[] conductivityMap = new double[nx * ny];
+        for (int i = 0; i < nx; i++)
+        for (int j = 0; j < ny; j++)
+            conductivityMap[i * ny + j] = j < ny / 2 ? 0.05 : 5.0;
+
+        var solver = new LaplaceSolver2D(
+            nx, ny, 1.0, 1.0,
+            leftBC:   new DirichletBC(0.0),
+            rightBC:  new DirichletBC(1.0),
+            bottomBC: new NeumannBC(0.0),
+            topBC:    new NeumannBC(0.0),
+            conductivityMap: conductivityMap);
+
+        var result = solver.Solve(new PdeSolverOptions
+        {
+            MaxIterations = 10_000,
+            Tolerance     = 1e-12,
+        });
+
+        Assert.True(result.Converged,
+            $"Solver did not converge: residual = {result.Residual}");
+
+        for (int i = 0; i < nx; i++)
+        for (int j = 0; j < ny; j++)
+        {
+            double exact = i * dx;
+            double got   = result.Solution[i * ny + j];
+            Assert.Equal(exact, got, precision: 5);
         }
     }
 }
