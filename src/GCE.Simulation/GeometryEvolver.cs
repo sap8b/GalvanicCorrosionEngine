@@ -116,6 +116,13 @@ public sealed class GeometryEvolver
         ArgumentNullException.ThrowIfNull(nodalCorrosionRates);
         ArgumentNullException.ThrowIfNull(anodeMaterial);
 
+        // Normalize bounds: callers may pass maxDt < minDt when very little
+        // simulation time remains (e.g. remainingTime < minDt on the final step).
+        // Reducing minDt to match maxDt prevents Math.Clamp from throwing and
+        // returns the largest step still within the remaining time.
+        if (maxDt < minDt)
+            minDt = maxDt;
+
         int    nx        = mesh.NodesX;
         int    ny        = mesh.NodesY;
         double dx        = nx > 1 ? (mesh.XCoordinates[nx - 1] - mesh.XCoordinates[0]) / (nx - 1) : 1.0;
@@ -151,7 +158,7 @@ public sealed class GeometryEvolver
         }
 
         if (remainingTimes.Count == 0)
-            return Math.Clamp(maxDt, minDt, maxDt);
+            return maxDt;
 
         remainingTimes.Sort();
 

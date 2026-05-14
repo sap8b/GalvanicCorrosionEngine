@@ -241,6 +241,12 @@ public sealed class SimulationEngine : ISimulationRunner
                 }
             }
 
+            // Operator-splitting: when the simulation has already consumed all
+            // remaining time (due to variable Δt_geo steps), exit the loop early
+            // rather than attempting a zero-sized step.
+            if (geoEvolver is not null && t >= parameters.DurationSeconds)
+                break;
+
             if (timeEvolver is not null)
             {
                 // Adaptive path: let TimeEvolver choose an appropriate dt.
@@ -258,7 +264,9 @@ public sealed class SimulationEngine : ISimulationRunner
                 double maxDtForStep;
                 if (geoEvolver is not null && lastNodalCorrosionRates is not null)
                 {
-                    double maxAllowed = Math.Max(remainingTime, 1.0);
+                    // Cap the geometric timestep to the remaining simulation time so
+                    // the time axis never significantly overshoots DurationSeconds.
+                    double maxAllowed = Math.Max(remainingTime, 0.0);
                     maxDtForStep = geoEvolver.ComputeGeometricTimestep(
                         parameters.Mesh!, nodeMassLoss!, lastNodalCorrosionRates,
                         parameters.Pair.Anode,
@@ -280,7 +288,9 @@ public sealed class SimulationEngine : ISimulationRunner
                 // uses the adaptive geometric timestep Δt_geo so that the time axis
                 // advances on the slow (geometric) timescale.
                 double remainingTime = parameters.DurationSeconds - t;
-                double maxAllowed    = Math.Max(remainingTime, 1.0);
+                // Cap the geometric timestep to the remaining simulation time so
+                // the time axis never significantly overshoots DurationSeconds.
+                double maxAllowed    = Math.Max(remainingTime, 0.0);
                 double dtGeo = geoEvolver.ComputeGeometricTimestep(
                     parameters.Mesh!, nodeMassLoss!, lastNodalCorrosionRates,
                     parameters.Pair.Anode,
