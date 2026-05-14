@@ -278,6 +278,33 @@ public sealed class SimulationEngine : ISimulationRunner
                     lastNodalCorrosionRates,
                     currentDt,
                     parameters.Pair.Anode);
+
+                if (parameters.CorrosionProductMaterial is not null
+                    && parameters.TrackedSpecies is { Count: > 0 })
+                {
+                    int hydroxideExponent = InferHydroxideStoichiometry(parameters.CorrosionProductMaterial.Name);
+                    double hydroxideActivity = ComputeHydroxideActivity(GetEnvironmentAt(parameters, t).pH);
+                    var precipitationModel = new PrecipitationModel(
+                        parameters.CorrosionProductMaterial.SolubilityProduct);
+
+                    foreach (var st in parameters.TrackedSpecies)
+                    {
+                        if (st.GridPoints != parameters.Mesh.NodesX * parameters.Mesh.NodesY)
+                            continue;
+                        if (!IsLikelyAnodicMetalIon(st.Species, parameters.Pair.Anode))
+                            continue;
+
+                        st.ApplyPrecipitationAndDeposition(
+                            parameters.Mesh,
+                            lastNodalCorrosionRates,
+                            currentDt,
+                            parameters.Pair.Anode,
+                            precipitationModel,
+                            parameters.CorrosionProductMaterial,
+                            hydroxideActivity,
+                            hydroxideExponent);
+                    }
+                }
             }
 
             double rate = ComputeCorrosionRate(parameters, t, potential);
@@ -501,5 +528,64 @@ public sealed class SimulationEngine : ISimulationRunner
                     mesh.Regions[i, j] = NodePhase.Electrolyte;
             }
         }
+    }
+
+    private static bool IsLikelyAnodicMetalIon(Species species, IMaterial anodeMaterial)
+    {
+        if (species.Charge <= 0)
+            return false;
+
+        if (species.Name.Equals("H+", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string prefix = GetAnodeIonPrefix(anodeMaterial.Name);
+        if (prefix.Length == 0)
+            return true;
+
+        return species.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetAnodeIonPrefix(string materialName)
+    {
+        if (materialName.Contains("zinc", StringComparison.OrdinalIgnoreCase))
+            return "Zn";
+        if (materialName.Contains("steel", StringComparison.OrdinalIgnoreCase)
+            || materialName.Contains("iron", StringComparison.OrdinalIgnoreCase))
+            return "Fe";
+        if (materialName.Contains("aluminium", StringComparison.OrdinalIgnoreCase)
+            || materialName.Contains("aluminum", StringComparison.OrdinalIgnoreCase))
+            return "Al";
+        if (materialName.Contains("copper", StringComparison.OrdinalIgnoreCase))
+            return "Cu";
+        if (materialName.Contains("nickel", StringComparison.OrdinalIgnoreCase))
+            return "Ni";
+        if (materialName.Contains("magnesium", StringComparison.OrdinalIgnoreCase))
+            return "Mg";
+
+        return string.Empty;
+    }
+
+    private static int InferHydroxideStoichiometry(string corrosionProductName)
+    {
+        int marker = corrosionProductName.IndexOf("(OH)", StringComparison.OrdinalIgnoreCase);
+        if (marker < 0)
+            return 1;
+
+        int idx = marker + "(OH)".Length;
+        int value = 0;
+        while (idx < corrosionProductName.Length && char.IsDigit(corrosionProductName[idx]))
+        {
+            value = value * 10 + (corrosionProductName[idx] - '0');
+            idx++;
+        }
+
+        return value > 0 ? value : 1;
+    }
+
+    private static double ComputeHydroxideActivity(double pH)
+    {
+        // [OH-] = 10^(pH-14) mol/L; convert to mol/m³ for consistency with species concentration.
+        double hydroxideMolPerLiter = Math.Pow(10.0, pH - 14.0);
+        return Math.Max(hydroxideMolPerLiter * 1000.0, 0.0);
     }
 }

@@ -3,6 +3,7 @@ using GCE.Core;
 using GCE.Electrochemistry;
 using GCE.Numerics.Solvers;
 using GCE.Simulation;
+using System.Linq;
 
 namespace GCE.Simulation.Tests;
 
@@ -722,6 +723,38 @@ public class SpeciesTransportSimulationTests
             leftBC: leftBC, rightBC: rightBC, timeStep: 1.0);
     }
 
+    private static GeometryMesh AnodeElectrolyteMesh()
+    {
+        var regions = new NodePhase[5, 5];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 5; j++)
+            {
+                regions[i, j] = i switch
+                {
+                    <= 1 => NodePhase.Anode,
+                    >= 4 => NodePhase.Cathode,
+                    _ => NodePhase.Electrolyte,
+                };
+            }
+        }
+
+        return new GeometryMesh(
+            XCoordinates: [0.0, 0.025, 0.050, 0.075, 0.100],
+            YCoordinates: [0.0, 0.025, 0.050, 0.075, 0.100],
+            Regions: regions);
+    }
+
+    private static SpeciesTransport CreateFerrousIonTransportForMesh()
+    {
+        var fe2 = new Species("Fe2+", charge: 2, diffusionCoefficient: 0.72e-9, concentration: 1.0);
+        var leftBC = new DirichletBC(1.0);
+        var rightBC = new DirichletBC(1.0);
+        return new SpeciesTransport(fe2, domainLength: 1e-4, gridPoints: 25,
+            initialProfile: Enumerable.Repeat(1.0, 25).ToArray(),
+            leftBC: leftBC, rightBC: rightBC, timeStep: 1.0);
+    }
+
     [Fact]
     public void Run_WithTrackedSpecies_PopulatesSpeciesConcentrationHistory()
     {
@@ -769,6 +802,35 @@ public class SpeciesTransportSimulationTests
         var result = Engine.Run(SimulationTestFixtures.DefaultParameters());
 
         Assert.Null(result.SpeciesConcentrationHistory);
+    }
+
+    [Fact]
+    public void Run_WithTrackedMetalIonAndCorrosionProductMaterial_DepositsCorrosionProductNodes()
+    {
+        var mesh = AnodeElectrolyteMesh();
+        var feTransport = CreateFerrousIonTransportForMesh();
+
+        var parameters = SimulationTestFixtures.DefaultParameters(
+            durationSeconds: 60, timeSteps: 5)
+            with
+            {
+                Mesh = mesh,
+                TrackedSpecies = [feTransport],
+                CorrosionProductMaterial = CorrosionProductBehavior.FerrousHydroxide,
+            };
+
+        var result = Engine.Run(parameters);
+
+        int corrosionProductCount = 0;
+        for (int i = 0; i < mesh.NodesX; i++)
+            for (int j = 0; j < mesh.NodesY; j++)
+                if (mesh.Regions[i, j] == NodePhase.CorrosionProduct)
+                    corrosionProductCount++;
+
+        Assert.True(corrosionProductCount > 0);
+        Assert.NotNull(result.SpeciesConcentrationHistory);
+        Assert.True(result.SpeciesConcentrationHistory!.ContainsKey("Fe2+"));
+        Assert.True(result.SpeciesConcentrationHistory["Fe2+"][^1] < 1.0);
     }
 }
 
