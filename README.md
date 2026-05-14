@@ -245,6 +245,7 @@ Top-level keys are:
 | `durationSeconds` | number | 3600 | Total simulation time in seconds. |
 | `timeSteps` | integer | 1000 | Number of time-integration steps. |
 | `weather` | `weather` \| null | null | Optional time-varying weather driver. |
+| `nodeSpacing` | `nodeSpacing` | see schema | Mesh-resolution strategy and node-spacing guidance. |
 
 A **`material`** object accepts either a `name` string for a registry lookup
 (`"Zinc"`, `"Mild Steel"`, `"Aluminium"`, `"Copper"`, `"Nickel"`, `"Magnesium"`) or
@@ -257,6 +258,18 @@ For `"synthetic"`, the diurnal cycle is parameterized by `baseTempCelsius`,
 `tempAmplitude`, `baseRelativeHumidity`, `humidityAmplitude`, and
 `chlorideConcentration`. For `"csv"`, provide a `csvPath` to a weather observation
 file.
+
+A **`nodeSpacing`** object controls physical mesh resolution. The minimum resolvable
+surface recession/deposition is one node pitch (Δx). In physical terms, "one node
+dissolved" corresponds to a removed volume of:
+
+**Δx × 1 m²** (for a notional 1 m² out-of-plane cross-section).
+
+Use `strategy: "uniformFromExpectedDepth"` with
+`expectedPenetrationDepth` / `expectedDepositionThickness` and
+`nodesPerExpectedDepth` to choose Δx from expected damage scales, or use
+`strategy: "explicitCoordinates"` with non-uniform `xCoordinates` /
+`yCoordinates`.
 
 ---
 

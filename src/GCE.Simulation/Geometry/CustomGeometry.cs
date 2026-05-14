@@ -115,12 +115,33 @@ public sealed class CustomGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++)
             ys[j] = j * yStep;
 
-        double midpoint = DefaultDomainSize / 2.0;
-        var regions = new NodePhase[nodesX, nodesY];
-        for (int i = 0; i < nodesX; i++)
+        return BuildMesh(xs, ys);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// When no custom mesh is supplied, this overload partitions the provided x-range
+    /// at its midpoint (x_min + x_max)/2: left side = anode, right side = cathode.
+    /// </remarks>
+    public GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates)
+    {
+        if (_customMesh is not null)
+            return _customMesh;
+
+        ArgumentNullException.ThrowIfNull(xCoordinates);
+        ArgumentNullException.ThrowIfNull(yCoordinates);
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(xCoordinates, nameof(xCoordinates));
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(yCoordinates, nameof(yCoordinates));
+
+        var xs = (double[])xCoordinates.Clone();
+        var ys = (double[])yCoordinates.Clone();
+
+        double midpoint = (xs[0] + xs[^1]) / 2.0;
+        var regions = new NodePhase[xs.Length, ys.Length];
+        for (int i = 0; i < xs.Length; i++)
         {
             NodePhase region = xs[i] <= midpoint ? NodePhase.Anode : NodePhase.Cathode;
-            for (int j = 0; j < nodesY; j++)
+            for (int j = 0; j < ys.Length; j++)
                 regions[i, j] = region;
         }
 

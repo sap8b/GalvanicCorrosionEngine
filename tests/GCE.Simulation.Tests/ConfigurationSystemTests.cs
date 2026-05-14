@@ -22,6 +22,8 @@ public class SimulationConfigTests
         Assert.Equal(3600.0, config.DurationSeconds);
         Assert.Equal(1000,  config.TimeSteps);
         Assert.Null(config.Weather);
+        Assert.Equal(NodeSpacingStrategy.UniformFromExpectedDepth, config.NodeSpacing.Strategy);
+        Assert.True(config.NodeSpacing.RecommendedNodePitch > 0.0);
     }
 
     [Fact]
@@ -189,6 +191,58 @@ public class SimulationConfigValidatorTests
         var config = new SimulationConfig { TimeSteps = 0 };
         var errors = Validator.Validate(config);
         Assert.Contains(errors, e => e.Contains("timeSteps"));
+    }
+
+    [Fact]
+    public void Validate_NodeSpacingUniformWithZeroExpectedDepth_ReturnsError()
+    {
+        var config = new SimulationConfig
+        {
+            NodeSpacing = new NodeSpacingConfig
+            {
+                Strategy = NodeSpacingStrategy.UniformFromExpectedDepth,
+                ExpectedPenetrationDepth = 0.0,
+                ExpectedDepositionThickness = 0.0,
+            },
+        };
+
+        var errors = Validator.Validate(config);
+        Assert.Contains(errors, e => e.Contains("nodeSpacing"));
+    }
+
+    [Fact]
+    public void Validate_NodeSpacingExplicitCoordinatesWithoutCoordinates_ReturnsErrors()
+    {
+        var config = new SimulationConfig
+        {
+            NodeSpacing = new NodeSpacingConfig
+            {
+                Strategy = NodeSpacingStrategy.ExplicitCoordinates,
+                XCoordinates = null,
+                YCoordinates = null,
+            },
+        };
+
+        var errors = Validator.Validate(config);
+        Assert.Contains(errors, e => e.Contains("nodeSpacing.xCoordinates"));
+        Assert.Contains(errors, e => e.Contains("nodeSpacing.yCoordinates"));
+    }
+
+    [Fact]
+    public void Validate_NodeSpacingExplicitCoordinatesWithIncreasingCoordinates_ReturnsNoErrors()
+    {
+        var config = new SimulationConfig
+        {
+            NodeSpacing = new NodeSpacingConfig
+            {
+                Strategy = NodeSpacingStrategy.ExplicitCoordinates,
+                XCoordinates = [0.0, 0.001, 0.002],
+                YCoordinates = [0.0, 0.002, 0.004],
+            },
+        };
+
+        var errors = Validator.Validate(config);
+        Assert.DoesNotContain(errors, e => e.Contains("nodeSpacing"));
     }
 
     [Fact]

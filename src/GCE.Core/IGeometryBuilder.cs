@@ -38,4 +38,22 @@ public interface IGeometryBuilder
     /// Thrown when <paramref name="nodesX"/> or <paramref name="nodesY"/> is less than 2.
     /// </exception>
     GeometryMesh BuildMesh(int nodesX = 20, int nodesY = 20);
+
+    /// <summary>
+    /// Generates a 2-D mesh using explicitly supplied coordinates.
+    /// </summary>
+    /// <remarks>
+    /// This overload supports non-uniform rectilinear grids.  The minimum resolvable
+    /// interface recession/deposition along x is one local node pitch (Δx).
+    /// </remarks>
+    /// <param name="xCoordinates">Strictly increasing x-axis node coordinates (m), minimum length 2.</param>
+    /// <param name="yCoordinates">Strictly increasing y-axis node coordinates (m), minimum length 2.</param>
+    /// <returns>A <see cref="GeometryMesh"/> describing the grid and region assignments.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="xCoordinates"/> or <paramref name="yCoordinates"/> is null.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when either coordinate array has fewer than 2 points or is not strictly increasing.
+    /// </exception>
+    GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates);
 }

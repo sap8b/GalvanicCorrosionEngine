@@ -135,9 +135,6 @@ public sealed class ImmersedRodGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        NodePhase rodRegion  = _rodIsAnode ? NodePhase.Anode : NodePhase.Cathode;
-        NodePhase bathRegion = _rodIsAnode ? NodePhase.Cathode : NodePhase.Anode;
-
         double halfW = BathWidth  / 2.0;
         double halfH = BathHeight / 2.0;
         double xStep = BathWidth  / (nodesX - 1);
@@ -148,10 +145,26 @@ public sealed class ImmersedRodGeometry : IGeometryBuilder
         for (int i = 0; i < nodesX; i++) xs[i] = -halfW + i * xStep;
         for (int j = 0; j < nodesY; j++) ys[j] = -halfH + j * yStep;
 
+        return BuildMesh(xs, ys);
+    }
+
+    /// <inheritdoc/>
+    public GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates)
+    {
+        ArgumentNullException.ThrowIfNull(xCoordinates);
+        ArgumentNullException.ThrowIfNull(yCoordinates);
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(xCoordinates, nameof(xCoordinates));
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(yCoordinates, nameof(yCoordinates));
+
+        var xs = (double[])xCoordinates.Clone();
+        var ys = (double[])yCoordinates.Clone();
+
+        NodePhase rodRegion  = _rodIsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase bathRegion = _rodIsAnode ? NodePhase.Cathode : NodePhase.Anode;
         double r2 = RodRadius * RodRadius;
-        var regions = new NodePhase[nodesX, nodesY];
-        for (int i = 0; i < nodesX; i++)
-            for (int j = 0; j < nodesY; j++)
+        var regions = new NodePhase[xs.Length, ys.Length];
+        for (int i = 0; i < xs.Length; i++)
+            for (int j = 0; j < ys.Length; j++)
                 regions[i, j] = xs[i] * xs[i] + ys[j] * ys[j] <= r2 ? rodRegion : bathRegion;
 
         return new GeometryMesh(xs, ys, regions);

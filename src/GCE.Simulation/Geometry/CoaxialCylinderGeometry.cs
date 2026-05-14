@@ -133,9 +133,6 @@ public sealed class CoaxialCylinderGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        NodePhase innerRegion = _innerIsAnode ? NodePhase.Anode : NodePhase.Cathode;
-        NodePhase outerRegion = _innerIsAnode ? NodePhase.Cathode : NodePhase.Anode;
-
         double half  = OuterRadius;
         double xStep = 2.0 * OuterRadius / (nodesX - 1);
         double yStep = 2.0 * OuterRadius / (nodesY - 1);
@@ -145,10 +142,26 @@ public sealed class CoaxialCylinderGeometry : IGeometryBuilder
         for (int i = 0; i < nodesX; i++) xs[i] = -half + i * xStep;
         for (int j = 0; j < nodesY; j++) ys[j] = -half + j * yStep;
 
+        return BuildMesh(xs, ys);
+    }
+
+    /// <inheritdoc/>
+    public GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates)
+    {
+        ArgumentNullException.ThrowIfNull(xCoordinates);
+        ArgumentNullException.ThrowIfNull(yCoordinates);
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(xCoordinates, nameof(xCoordinates));
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(yCoordinates, nameof(yCoordinates));
+
+        var xs = (double[])xCoordinates.Clone();
+        var ys = (double[])yCoordinates.Clone();
+
+        NodePhase innerRegion = _innerIsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase outerRegion = _innerIsAnode ? NodePhase.Cathode : NodePhase.Anode;
         double r2 = InnerRadius * InnerRadius;
-        var regions = new NodePhase[nodesX, nodesY];
-        for (int i = 0; i < nodesX; i++)
-            for (int j = 0; j < nodesY; j++)
+        var regions = new NodePhase[xs.Length, ys.Length];
+        for (int i = 0; i < xs.Length; i++)
+            for (int j = 0; j < ys.Length; j++)
                 regions[i, j] = xs[i] * xs[i] + ys[j] * ys[j] <= r2 ? innerRegion : outerRegion;
 
         return new GeometryMesh(xs, ys, regions);

@@ -139,9 +139,6 @@ public sealed class BoltInPlateGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        NodePhase boltRegion = _boltIsAnode ? NodePhase.Anode : NodePhase.Cathode;
-        NodePhase plateRegion = _boltIsAnode ? NodePhase.Cathode : NodePhase.Anode;
-
         double half = PlateWidth / 2.0;
         double xStep = PlateWidth / (nodesX - 1);
         double yStep = PlateWidth / (nodesY - 1);
@@ -154,11 +151,27 @@ public sealed class BoltInPlateGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++)
             ys[j] = -half + j * yStep;
 
-        var regions = new NodePhase[nodesX, nodesY];
+        return BuildMesh(xs, ys);
+    }
+
+    /// <inheritdoc/>
+    public GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates)
+    {
+        ArgumentNullException.ThrowIfNull(xCoordinates);
+        ArgumentNullException.ThrowIfNull(yCoordinates);
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(xCoordinates, nameof(xCoordinates));
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(yCoordinates, nameof(yCoordinates));
+
+        var xs = (double[])xCoordinates.Clone();
+        var ys = (double[])yCoordinates.Clone();
+
+        NodePhase boltRegion = _boltIsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase plateRegion = _boltIsAnode ? NodePhase.Cathode : NodePhase.Anode;
+        var regions = new NodePhase[xs.Length, ys.Length];
         double r2 = BoltRadius * BoltRadius;
-        for (int i = 0; i < nodesX; i++)
+        for (int i = 0; i < xs.Length; i++)
         {
-            for (int j = 0; j < nodesY; j++)
+            for (int j = 0; j < ys.Length; j++)
             {
                 double dist2 = xs[i] * xs[i] + ys[j] * ys[j];
                 regions[i, j] = dist2 <= r2 ? boltRegion : plateRegion;
