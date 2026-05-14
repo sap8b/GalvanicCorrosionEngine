@@ -160,6 +160,12 @@ public sealed class SimulationEngine : ISimulationRunner
 
         var solver = new RungeKuttaSolver(ode);
 
+        // Operator-splitting: geometry evolver for the slow (geometric) timescale.
+        // Created only when both the flag is set and a mesh is provided.
+        GeometryEvolver? geoEvolver = null;
+        if (parameters.UseOperatorSplitting && parameters.Mesh is not null)
+            geoEvolver = new GeometryEvolver(parameters.MaxNodesPerGeoStep);
+
         // Species transport tracking.
         Dictionary<string, List<double>>? speciesHistory = null;
         if (parameters.TrackedSpecies is { Count: > 0 })
@@ -245,8 +251,43 @@ public sealed class SimulationEngine : ISimulationRunner
                 // DurationSeconds.
                 double remainingTime = parameters.DurationSeconds - t;
                 double trialDt       = Math.Min(currentDt, remainingTime);
+
+                // When operator splitting is active, use the geometric timestep as
+                // the upper bound so that both the potential ODE and the geometry
+                // advance on the same (slow) timescale.
+                double maxDtForStep;
+                if (geoEvolver is not null && lastNodalCorrosionRates is not null)
+                {
+                    double maxAllowed = Math.Max(remainingTime, 1.0);
+                    maxDtForStep = geoEvolver.ComputeGeometricTimestep(
+                        parameters.Mesh!, nodeMassLoss!, lastNodalCorrosionRates,
+                        parameters.Pair.Anode,
+                        minDt: 1.0,
+                        maxDt: maxAllowed);
+                }
+                else
+                {
+                    maxDtForStep = nominalDt * MaxAdaptiveStepMultiplier;
+                }
+
+                trialDt = Math.Min(trialDt, maxDtForStep);
                 (potential, currentDt) = timeEvolver.AdvanceAdaptive(t, potential, trialDt, ode,
-                    maxDt: nominalDt * MaxAdaptiveStepMultiplier);
+                    maxDt: maxDtForStep);
+            }
+            else if (geoEvolver is not null && lastNodalCorrosionRates is not null)
+            {
+                // Operator-splitting (non-adaptive potential) path: the ODE step
+                // uses the adaptive geometric timestep Δt_geo so that the time axis
+                // advances on the slow (geometric) timescale.
+                double remainingTime = parameters.DurationSeconds - t;
+                double maxAllowed    = Math.Max(remainingTime, 1.0);
+                double dtGeo = geoEvolver.ComputeGeometricTimestep(
+                    parameters.Mesh!, nodeMassLoss!, lastNodalCorrosionRates,
+                    parameters.Pair.Anode,
+                    minDt: 1.0,
+                    maxDt: maxAllowed);
+                potential = solver.Step(t, potential, dtGeo);
+                currentDt = dtGeo;
             }
             else
             {
@@ -272,12 +313,26 @@ public sealed class SimulationEngine : ISimulationRunner
                     parameters.Pair.Anode,
                     parameters.CorrosionProductMaterial);
 
-                AccumulateNodeMassLoss(
-                    parameters.Mesh,
-                    nodeMassLoss,
-                    lastNodalCorrosionRates,
-                    currentDt,
-                    parameters.Pair.Anode);
+                if (geoEvolver is not null)
+                {
+                    // Operator-splitting (slow) path: use the GeometryEvolver to
+                    // accumulate mass with the already-computed currentDt (= Δt_geo).
+                    geoEvolver.Advance(
+                        parameters.Mesh,
+                        nodeMassLoss,
+                        lastNodalCorrosionRates,
+                        currentDt,
+                        parameters.Pair.Anode);
+                }
+                else
+                {
+                    AccumulateNodeMassLoss(
+                        parameters.Mesh,
+                        nodeMassLoss,
+                        lastNodalCorrosionRates,
+                        currentDt,
+                        parameters.Pair.Anode);
+                }
 
                 if (parameters.CorrosionProductMaterial is not null
                     && parameters.TrackedSpecies is { Count: > 0 })
@@ -380,6 +435,7 @@ public sealed class SimulationEngine : ISimulationRunner
             SpeciesConcentrationHistory = speciesConcentrationHistory,
             pHHistory            = pHList?.AsReadOnly(),
             NodeMassLoss         = nodeMassLoss,
+            GeoStepCount         = geoEvolver?.TotalGeoSteps ?? 0,
         };
 
         return Task.FromResult(result);

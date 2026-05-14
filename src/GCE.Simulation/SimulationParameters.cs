@@ -19,6 +19,15 @@ namespace GCE.Simulation;
 /// step based on the observed solution change, and records the convergence history in
 /// <see cref="SimulationResult.ConvergenceHistory"/>.
 /// </para>
+/// <para>
+/// When <see cref="UseOperatorSplitting"/> is <see langword="true"/> and a
+/// <see cref="Mesh"/> is provided, the engine uses operator splitting to decouple
+/// the electrochemical timescale (potential equilibration, ~ms) from the geometric
+/// timescale (corrosion-front evolution, ~hours/days).  Each outer step uses an
+/// adaptive macro-timestep Δt_geo computed by <see cref="GeometryEvolver"/> so
+/// that at most <see cref="MaxNodesPerGeoStep"/> anode nodes dissolve per step
+/// (the moving-boundary stability criterion).
+/// </para>
 /// </remarks>
 public sealed record SimulationParameters(
     GalvanicPair Pair,
@@ -32,4 +41,6 @@ public sealed record SimulationParameters(
     GeometryMesh? Mesh = null,
     IReadOnlyList<SpeciesTransport>? TrackedSpecies = null,
     bool TrackpH = false,
-    ICorrosionProductMaterial? CorrosionProductMaterial = null);
+    ICorrosionProductMaterial? CorrosionProductMaterial = null,
+    bool UseOperatorSplitting = false,
+    int MaxNodesPerGeoStep = 1);
