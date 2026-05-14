@@ -169,6 +169,9 @@ The ADI diffusion solver sweeps are parallelized with `Parallel.For`, yielding
 - **Geometry builders** (`GCE.Simulation.Geometry` namespace):
   - `BoltInPlateGeometry` — bolt-in-plate cross-section.
   - `SideBySideGeometry` — two sheets sharing a common electrolyte.
+  - `CoaxialCylinderGeometry` — concentric cylindrical anode/cathode arrangement.
+  - `ImmersedRodGeometry` — rod-in-electrolyte configuration.
+  - `OverlapJointGeometry` — overlapping-plate joint geometry.
   - `CustomGeometry` — arbitrary electrode areas with a user-supplied mesh.
 
 → See [`docs/README.md`](docs/README.md#using-a-geometry) for geometry code examples.
@@ -205,7 +208,10 @@ Example config files are in [`samples/config/`](samples/config/).
 `VtkResultWriter` can be instantiated with or without a `GeometryMesh`. Without a
 mesh it writes three VTK `FieldData` arrays (`Time_s`, `MixedPotential_V`,
 `CorrosionRate_mmPerYear`). With a mesh it additionally writes a `RegionId` point-data
-array marking each grid node as anode (0), cathode (1), or electrolyte/gap (−1).
+array marking each grid node as anode (0), cathode (1), electrolyte/gap (−1), or
+corrosion product (2). When present in `SimulationResult`, nodal potentials/corrosion
+rates and per-timestep snapshot arrays (phase, mass loss, recession depth, and surface
+profiles) are also embedded in the VTK output.
 
 → See [Visualizing Results](#visualizing-results) below for ParaView workflow.
 
@@ -352,7 +358,7 @@ dotnet run --project src/GCE.Console
 
 ### Running the Bundled Samples
 
-Four sample programs in `samples/` cover the most common usage patterns:
+Three sample programs in `samples/` cover the most common usage patterns:
 
 ```bash
 # Core API: 1-hour zinc/steel simulation → example_output.csv
@@ -486,7 +492,7 @@ The `VtkResultWriter` produces a **VTK XML RectilinearGrid** (`.vtr`) file reada
 
 ### Working with Time-Series CSV/JSON Output
 
-`CsvResultWriter` produces a two-column file with headers
+`CsvResultWriter` produces a three-column file with headers
 `Time_s,MixedPotential_V,CorrosionRate_mmPerYear`. It can be opened directly in
 Excel, MATLAB, Python (pandas/matplotlib), or any plotting tool.
 
@@ -512,9 +518,10 @@ plt.tight_layout()
 plt.savefig("corrosion_timeseries.png", dpi=150)
 ```
 
-`JsonResultWriter` produces a JSON object with three parallel arrays under keys
-`time_s`, `mixed_potential_V`, and `corrosion_rate_mm_per_year`, suitable for web
-dashboards or downstream processing with `System.Text.Json` / `Newtonsoft.Json`.
+`JsonResultWriter` produces a JSON object with parallel arrays under keys
+`timePoints_s`, `mixedPotentials_V`, and `corrosionRates_mmPerYear` (plus optional
+`convergenceHistory` for adaptive runs), suitable for web dashboards or downstream
+processing with `System.Text.Json` / `Newtonsoft.Json`.
 
 ---
 
