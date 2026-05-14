@@ -31,4 +31,5 @@ public sealed record SimulationParameters(
     FilmEvolution? FilmEvolution = null,
     GeometryMesh? Mesh = null,
     IReadOnlyList<SpeciesTransport>? TrackedSpecies = null,
-    bool TrackpH = false);
+    bool TrackpH = false,
+    ICorrosionProductMaterial? CorrosionProductMaterial = null);

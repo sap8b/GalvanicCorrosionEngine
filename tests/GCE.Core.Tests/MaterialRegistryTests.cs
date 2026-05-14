@@ -136,6 +136,71 @@ public class AlloyTests
     }
 }
 
+public class CorrosionProductMaterialTests
+{
+    [Fact]
+    public void Constructor_SetsAllProperties()
+    {
+        var material = new CorrosionProductMaterial("ZnO", 1e-6, 1.45e-5, 3e-17, 8.0);
+
+        Assert.Equal("ZnO", material.Name);
+        Assert.Equal(1e-6, material.IonicConductivity, precision: 12);
+        Assert.Equal(1.45e-5, material.MolarVolume, precision: 12);
+        Assert.Equal(3e-17, material.SolubilityProduct, precision: 15);
+        Assert.Equal(8.0, material.BarrierResistanceFactor, precision: 12);
+    }
+
+    [Fact]
+    public void CorrosionProductMaterial_IsAssignableToInterface()
+    {
+        ICorrosionProductMaterial material = new CorrosionProductMaterial("ZnO", 1e-6, 1.45e-5, 3e-17, 8.0);
+        Assert.NotNull(material);
+    }
+
+    [Fact]
+    public void ToString_ReturnsName()
+    {
+        var material = new CorrosionProductMaterial("Fe(OH)2", 2.5e-5, 2.65e-5, 8e-16, 4.0);
+        Assert.Equal("Fe(OH)2", material.ToString());
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public void Constructor_Throws_WhenIonicConductivityNotPositive(double ionicConductivity)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new CorrosionProductMaterial("ZnO", ionicConductivity, 1.45e-5, 3e-17, 8.0));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public void Constructor_Throws_WhenMolarVolumeNotPositive(double molarVolume)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new CorrosionProductMaterial("ZnO", 1e-6, molarVolume, 3e-17, 8.0));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public void Constructor_Throws_WhenSolubilityProductNotPositive(double solubilityProduct)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new CorrosionProductMaterial("ZnO", 1e-6, 1.45e-5, solubilityProduct, 8.0));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public void Constructor_Throws_WhenBarrierResistanceFactorNotPositive(double barrierResistanceFactor)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new CorrosionProductMaterial("ZnO", 1e-6, 1.45e-5, 3e-17, barrierResistanceFactor));
+    }
+}
+
 // ── MaterialRegistry ──────────────────────────────────────────────────────────
 
 public class MaterialRegistryTests

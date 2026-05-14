@@ -285,7 +285,8 @@ public sealed class SimulationEngine : ISimulationRunner
                 anodeE,
                 cathodeE,
                 kappa,
-                parameters.Pair.Anode);
+                parameters.Pair.Anode,
+                parameters.CorrosionProductMaterial);
         }
 
         IReadOnlyDictionary<string, IReadOnlyList<double>>? speciesConcentrationHistory = null;
