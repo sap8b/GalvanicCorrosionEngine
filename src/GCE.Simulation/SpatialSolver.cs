@@ -12,9 +12,10 @@ namespace GCE.Simulation;
 /// <remarks>
 /// <para>
 /// Boundary conditions are derived from the galvanic couple's anode and cathode
-/// standard potentials (Dirichlet on each face; the anode face is set to the
-/// anode's standard potential and the cathode face to the cathode's standard
-/// potential).  All other faces carry zero-flux (Neumann) conditions.
+/// standard potentials and applied at the dynamically identified
+/// metal-electrolyte interfaces (anode/electrolyte and cathode/electrolyte).
+/// Nodes that are not part of those interfaces use zero-flux boundaries on the
+/// outer domain perimeter.
 /// </para>
 /// <para>
 /// The local current density is computed from the potential gradient:
@@ -30,6 +31,9 @@ internal static class SpatialSolver
     private const double DefaultElectrolyteConductivity = 1.0e-3;
     private const double CorrosionProductConductivityRatio = 1.0e-2;
     private const double MinimumCorrosionProductConductivity = 1.0e-6;
+    private const double SolverTolerance = 1e-8;
+    private const int SolverMaxIterations = 4000;
+    private const double SOROmega = 1.5;
 
     /// <summary>
     /// Solves the variable-conductivity Laplace equation on <paramref name="mesh"/>
@@ -69,23 +73,11 @@ internal static class SpatialSolver
         if (lx <= 0.0) lx = 1.0;
         if (ly <= 0.0) ly = 1.0;
 
-        // BCs: anode potential on the left face, cathode potential on the right face,
-        // zero-flux (insulating) on top and bottom.
-        var leftBC   = new DirichletBC(anodePotential);
-        var rightBC  = new DirichletBC(cathodePotential);
-        var bottomBC = new NeumannBC(0.0);
-        var topBC    = new NeumannBC(0.0);
-
         double[] conductivityMap = BuildConductivityMap(mesh, ionicConductivity, corrosionProductMaterial);
-
-        var solver = new LaplaceSolver2D(
-            nx, ny, lx, ly,
-            leftBC, rightBC, bottomBC, topBC,
-            conductivityMap: conductivityMap,
-            omega: 1.5);
-
-        var result = solver.Solve(new PdeSolverOptions { MaxIterations = 2000, Tolerance = 1e-8 });
-        double[] phi = result.Solution;
+        (bool[] fixedNodeMask, double[] fixedNodeValues) = BuildDynamicBoundaryConditions(
+            mesh, anodePotential, cathodePotential);
+        double[] phi = SolvePotentialField(
+            nx, ny, lx, ly, conductivityMap, fixedNodeMask, fixedNodeValues);
 
         // Compute corrosion rates from current density j = -κ * dφ/dx (forward differences).
         double dx = lx / (nx - 1);
@@ -157,5 +149,173 @@ internal static class SpatialSolver
         }
 
         return conductivityMap;
+    }
+
+    private static (bool[] FixedNodeMask, double[] FixedNodeValues) BuildDynamicBoundaryConditions(
+        GeometryMesh mesh,
+        double       anodePotential,
+        double       cathodePotential)
+    {
+        int nx = mesh.NodesX;
+        int ny = mesh.NodesY;
+        bool[] fixedNodeMask = new bool[nx * ny];
+        double[] fixedNodeValues = new double[nx * ny];
+
+        bool hasAnodeInterface = false;
+        bool hasCathodeInterface = false;
+
+        for (int i = 0; i < nx; i++)
+        {
+            for (int j = 0; j < ny; j++)
+            {
+                int idx = i * ny + j;
+                if (mesh.Regions[i, j] == NodePhase.Anode
+                    && HasNeighborPhase(mesh.Regions, nx, ny, i, j, NodePhase.Electrolyte))
+                {
+                    fixedNodeMask[idx] = true;
+                    fixedNodeValues[idx] = anodePotential;
+                    hasAnodeInterface = true;
+                }
+                else if (mesh.Regions[i, j] == NodePhase.Cathode
+                         && HasNeighborPhase(mesh.Regions, nx, ny, i, j, NodePhase.Electrolyte))
+                {
+                    fixedNodeMask[idx] = true;
+                    fixedNodeValues[idx] = cathodePotential;
+                    hasCathodeInterface = true;
+                }
+            }
+        }
+
+        // Fallback to legacy face BCs when no interface nodes are available.
+        if (!hasAnodeInterface)
+        {
+            for (int j = 0; j < ny; j++)
+            {
+                int idx = j;
+                fixedNodeMask[idx] = true;
+                fixedNodeValues[idx] = anodePotential;
+            }
+        }
+
+        if (!hasCathodeInterface)
+        {
+            for (int j = 0; j < ny; j++)
+            {
+                int idx = (nx - 1) * ny + j;
+                fixedNodeMask[idx] = true;
+                fixedNodeValues[idx] = cathodePotential;
+            }
+        }
+
+        return (fixedNodeMask, fixedNodeValues);
+    }
+
+    private static bool HasNeighborPhase(
+        NodePhase[,] regions,
+        int          nx,
+        int          ny,
+        int          i,
+        int          j,
+        NodePhase    targetPhase)
+    {
+        if (i > 0 && regions[i - 1, j] == targetPhase) return true;
+        if (i < nx - 1 && regions[i + 1, j] == targetPhase) return true;
+        if (j > 0 && regions[i, j - 1] == targetPhase) return true;
+        if (j < ny - 1 && regions[i, j + 1] == targetPhase) return true;
+        return false;
+    }
+
+    private static double[] SolvePotentialField(
+        int      nx,
+        int      ny,
+        double   lx,
+        double   ly,
+        double[] conductivityMap,
+        bool[]   fixedNodeMask,
+        double[] fixedNodeValues)
+    {
+        double dx = nx > 1 ? lx / (nx - 1) : 1.0;
+        double dy = ny > 1 ? ly / (ny - 1) : 1.0;
+        double dx2 = dx * dx;
+        double dy2 = dy * dy;
+
+        var phi = new double[nx * ny];
+        for (int idx = 0; idx < phi.Length; idx++)
+            if (fixedNodeMask[idx])
+                phi[idx] = fixedNodeValues[idx];
+
+        for (int iter = 0; iter < SolverMaxIterations; iter++)
+        {
+            double residual = 0.0;
+
+            for (int i = 0; i < nx; i++)
+            {
+                for (int j = 0; j < ny; j++)
+                {
+                    int idx = i * ny + j;
+                    if (fixedNodeMask[idx])
+                    {
+                        phi[idx] = fixedNodeValues[idx];
+                        continue;
+                    }
+
+                    int westI = i > 0 ? i - 1 : (nx > 1 ? 1 : 0);
+                    int eastI = i < nx - 1 ? i + 1 : (nx > 1 ? nx - 2 : 0);
+                    int southJ = j > 0 ? j - 1 : (ny > 1 ? 1 : 0);
+                    int northJ = j < ny - 1 ? j + 1 : (ny > 1 ? ny - 2 : 0);
+
+                    double conductivity = conductivityMap[idx];
+                    double kW = i > 0
+                        ? FaceConductivity(conductivity, conductivityMap[westI * ny + j])
+                        : conductivity;
+                    double kE = i < nx - 1
+                        ? FaceConductivity(conductivity, conductivityMap[eastI * ny + j])
+                        : conductivity;
+                    double kS = j > 0
+                        ? FaceConductivity(conductivity, conductivityMap[i * ny + southJ])
+                        : conductivity;
+                    double kN = j < ny - 1
+                        ? FaceConductivity(conductivity, conductivityMap[i * ny + northJ])
+                        : conductivity;
+
+                    double uW = phi[westI * ny + j];
+                    double uE = phi[eastI * ny + j];
+                    double uS = phi[i * ny + southJ];
+                    double uN = phi[i * ny + northJ];
+
+                    double denominator = (kW + kE) / dx2 + (kS + kN) / dy2;
+                    if (denominator <= 0.0)
+                        continue;
+
+                    double uGaussSeidel = ((kW * uW + kE * uE) / dx2
+                                         + (kS * uS + kN * uN) / dy2)
+                                        / denominator;
+
+                    double oldValue = phi[idx];
+                    double newValue = (1.0 - SOROmega) * oldValue + SOROmega * uGaussSeidel;
+                    phi[idx] = newValue;
+                    double change = Math.Abs(newValue - oldValue);
+                    if (change > residual)
+                        residual = change;
+                }
+            }
+
+            if (residual < SolverTolerance)
+                break;
+        }
+
+        for (int idx = 0; idx < phi.Length; idx++)
+            if (fixedNodeMask[idx])
+                phi[idx] = fixedNodeValues[idx];
+
+        return phi;
+    }
+
+    private static double FaceConductivity(double first, double second)
+    {
+        double sum = first + second;
+        if (sum <= 0.0)
+            throw new InvalidOperationException("Face conductivity requires positive conductivities.");
+        return 2.0 * first * second / sum;
     }
 }

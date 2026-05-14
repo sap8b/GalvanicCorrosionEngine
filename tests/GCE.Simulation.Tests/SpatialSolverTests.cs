@@ -47,6 +47,28 @@ public class SpatialSolverTests
             Regions: regions);
     }
 
+    private static GeometryMesh DynamicInterfaceMesh()
+    {
+        var regions = new NodePhase[5, 5];
+        for (int i = 0; i < 5; i++)
+        {
+            for (int j = 0; j < 5; j++)
+            {
+                regions[i, j] = i switch
+                {
+                    <= 1 => NodePhase.Anode,
+                    2    => NodePhase.Electrolyte,
+                    _    => NodePhase.Cathode,
+                };
+            }
+        }
+
+        return new GeometryMesh(
+            XCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
+            YCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],
+            Regions: regions);
+    }
+
     private static SimulationParameters MakeParams(
         GeometryMesh mesh,
         ICorrosionProductMaterial? corrosionProductMaterial = null) =>
@@ -182,5 +204,26 @@ public class SpatialSolverTests
 
         Assert.True(barrierRate < baselineRate,
             $"Expected explicit corrosion-product rate {barrierRate} to be below baseline rate {baselineRate}.");
+    }
+
+    [Fact]
+    public void Run_WithDynamicMetalElectrolyteInterfaces_AppliesElectrodePotentialsAtInterfaces()
+    {
+        var mesh = DynamicInterfaceMesh();
+        var result = Engine.Run(MakeParams(mesh));
+
+        Assert.NotNull(result.NodalPotentials);
+
+        const int ny = 5;
+        double anodePotential = MaterialRegistry.Zinc.StandardPotential;
+        double cathodePotential = MaterialRegistry.Copper.StandardPotential;
+
+        for (int j = 0; j < ny; j++)
+        {
+            int anodeInterfaceIdx = 1 * ny + j;
+            int cathodeInterfaceIdx = 3 * ny + j;
+            Assert.Equal(anodePotential, result.NodalPotentials![anodeInterfaceIdx], precision: 6);
+            Assert.Equal(cathodePotential, result.NodalPotentials[cathodeInterfaceIdx], precision: 6);
+        }
     }
 }
