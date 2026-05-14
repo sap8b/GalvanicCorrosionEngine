@@ -18,13 +18,13 @@ public class SpatialSolverTests
 {
     private static readonly SimulationEngine Engine = new();
 
-    // 5×5 mesh: nodes 0–2 in x are the anode region (0), nodes 3–4 are cathode (1).
+    // 5×5 mesh: nodes 0–2 in x are anode, nodes 3–4 are cathode.
     private static GeometryMesh FiveFiveMesh()
     {
-        var regions = new int[5, 5];
+        var regions = new NodePhase[5, 5];
         for (int i = 0; i < 5; i++)
             for (int j = 0; j < 5; j++)
-                regions[i, j] = i <= 2 ? 0 : 1;
+                regions[i, j] = i <= 2 ? NodePhase.Anode : NodePhase.Cathode;
 
         return new GeometryMesh(
             XCoordinates: [0.00, 0.025, 0.050, 0.075, 0.100],

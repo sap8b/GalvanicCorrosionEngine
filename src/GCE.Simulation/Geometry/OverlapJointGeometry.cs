@@ -110,8 +110,8 @@ public sealed class OverlapJointGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        int region1 = _mat1IsAnode ? 0 : 1;
-        int region2 = _mat1IsAnode ? 1 : 0;
+        NodePhase region1 = _mat1IsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase region2 = _mat1IsAnode ? NodePhase.Cathode : NodePhase.Anode;
 
         double xStep = OverlapWidth  / (nodesX - 1);
         double yStep = OverlapLength / (nodesY - 1);
@@ -122,10 +122,10 @@ public sealed class OverlapJointGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++) ys[j] = j * yStep;
 
         double mid = OverlapWidth / 2.0;
-        var regions = new int[nodesX, nodesY];
+        var regions = new NodePhase[nodesX, nodesY];
         for (int i = 0; i < nodesX; i++)
         {
-            int region = xs[i] <= mid ? region1 : region2;
+            NodePhase region = xs[i] <= mid ? region1 : region2;
             for (int j = 0; j < nodesY; j++)
                 regions[i, j] = region;
         }

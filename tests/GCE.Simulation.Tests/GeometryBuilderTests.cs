@@ -140,7 +140,7 @@ public class BoltInPlateGeometryTests
         // Use odd number of nodes so there is an exact centre node.
         var mesh = g.BuildMesh(nodesX: 11, nodesY: 11);
         int ci = 5, cj = 5; // centre node (0-indexed)
-        Assert.Equal(0, mesh.Regions[ci, cj]); // anode region (bolt = zinc = anode)
+        Assert.Equal(NodePhase.Anode, mesh.Regions[ci, cj]); // anode region (bolt = zinc = anode)
     }
 
     [Fact]
@@ -149,8 +149,8 @@ public class BoltInPlateGeometryTests
         var g = CreateDefault();
         var mesh = g.BuildMesh(20, 20);
         // Corners are far from centre — should be in plate (cathode = 1) region.
-        Assert.Equal(1, mesh.Regions[0, 0]);
-        Assert.Equal(1, mesh.Regions[19, 19]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[0, 0]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[19, 19]);
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public class SideBySideGeometryTests
         var mesh = CreateDefault().BuildMesh(20, 10);
         // Node [0, *] is at x = 0, which is on the anode side.
         for (int j = 0; j < 10; j++)
-            Assert.Equal(0, mesh.Regions[0, j]);
+            Assert.Equal(NodePhase.Anode, mesh.Regions[0, j]);
     }
 
     [Fact]
@@ -255,7 +255,7 @@ public class SideBySideGeometryTests
         var mesh = CreateDefault().BuildMesh(20, 10);
         // Node [19, *] is at x = AnodeWidth + CathodeWidth (far right).
         for (int j = 0; j < 10; j++)
-            Assert.Equal(1, mesh.Regions[19, j]);
+            Assert.Equal(NodePhase.Cathode, mesh.Regions[19, j]);
     }
 
     [Fact]
@@ -277,9 +277,9 @@ public class SideBySideGeometryTests
 
         var mesh = g.BuildMesh(nodesX: 5, nodesY: 2);
         // x values: 0, 0.01, 0.02, 0.03, 0.04  (step = 0.04/4 = 0.01)
-        Assert.Equal(0, mesh.Regions[0, 0]); // x = 0.00 ≤ 0.01 → anode
-        Assert.Equal(0, mesh.Regions[1, 0]); // x = 0.01 ≤ 0.01 → anode
-        Assert.Equal(1, mesh.Regions[2, 0]); // x = 0.02 > 0.01 → cathode
+        Assert.Equal(NodePhase.Anode, mesh.Regions[0, 0]); // x = 0.00 ≤ 0.01 → anode
+        Assert.Equal(NodePhase.Anode, mesh.Regions[1, 0]); // x = 0.01 ≤ 0.01 → anode
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[2, 0]); // x = 0.02 > 0.01 → cathode
     }
 
     [Fact]
@@ -360,8 +360,8 @@ public class CustomGeometryTests
         var g = CreateDefault();
         var mesh = g.BuildMesh(10, 4);
         // Nodes at x ≤ 0.5 → region 0 (anode)
-        Assert.Equal(0, mesh.Regions[0, 0]);
-        Assert.Equal(0, mesh.Regions[4, 0]); // x = 4/9 ≈ 0.444 ≤ 0.5
+        Assert.Equal(NodePhase.Anode, mesh.Regions[0, 0]);
+        Assert.Equal(NodePhase.Anode, mesh.Regions[4, 0]); // x = 4/9 ≈ 0.444 ≤ 0.5
     }
 
     [Fact]
@@ -370,7 +370,7 @@ public class CustomGeometryTests
         var g = CreateDefault();
         var mesh = g.BuildMesh(10, 4);
         // Node at index 9: x = 1.0 > 0.5 → region 1 (cathode)
-        Assert.Equal(1, mesh.Regions[9, 0]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[9, 0]);
     }
 
     [Fact]
@@ -378,7 +378,7 @@ public class CustomGeometryTests
     {
         var xs = new double[] { 0.0, 1.0 };
         var ys = new double[] { 0.0, 1.0 };
-        var regions = new int[,] { { 0, 0 }, { 1, 1 } };
+        var regions = new NodePhase[,] { { NodePhase.Anode, NodePhase.Anode }, { NodePhase.Cathode, NodePhase.Cathode } };
         var customMesh = new GeometryMesh(xs, ys, regions);
 
         var g = CreateDefault(customMesh);
@@ -457,7 +457,7 @@ public class IGeometryBuilderContractTests
         for (int i = 0; i < mesh.NodesX; i++)
             for (int j = 0; j < mesh.NodesY; j++)
                 Assert.True(
-                    mesh.Regions[i, j] is -1 or 0 or 1,
+                    mesh.Regions[i, j] is NodePhase.Electrolyte or NodePhase.Anode or NodePhase.Cathode,
                     $"Unexpected region id {mesh.Regions[i, j]} at [{i},{j}]");
     }
 
@@ -583,7 +583,7 @@ public class CoaxialCylinderGeometryTests
         // With odd node counts the centre node is exactly at (0, 0).
         var mesh = CreateDefault().BuildMesh(11, 11);
         // Centre index = 5 for 11 nodes.
-        Assert.Equal(0, mesh.Regions[5, 5]); // inner = anode = region 0
+        Assert.Equal(NodePhase.Anode, mesh.Regions[5, 5]); // inner = anode
     }
 
     [Fact]
@@ -591,8 +591,8 @@ public class CoaxialCylinderGeometryTests
     {
         var mesh = CreateDefault().BuildMesh(20, 20);
         // Corners are at (±OuterRadius, ±OuterRadius): outside inner radius.
-        Assert.Equal(1, mesh.Regions[0,  0]);
-        Assert.Equal(1, mesh.Regions[19, 19]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[0,  0]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[19, 19]);
     }
 
     [Fact]
@@ -722,15 +722,15 @@ public class ImmersedRodGeometryTests
     {
         // Use 11 nodes: centre at index 5, x = 0, y = 0 → inside rod.
         var mesh = CreateDefault().BuildMesh(11, 11);
-        Assert.Equal(0, mesh.Regions[5, 5]); // rod = anode = region 0
+        Assert.Equal(NodePhase.Anode, mesh.Regions[5, 5]); // rod = anode
     }
 
     [Fact]
     public void BuildMesh_CornerNode_IsInBathRegion()
     {
         var mesh = CreateDefault().BuildMesh(20, 20);
-        Assert.Equal(1, mesh.Regions[0,  0]);
-        Assert.Equal(1, mesh.Regions[19, 19]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[0,  0]);
+        Assert.Equal(NodePhase.Cathode, mesh.Regions[19, 19]);
     }
 
     [Fact]
@@ -825,7 +825,7 @@ public class OverlapJointGeometryTests
         var mesh = CreateDefault().BuildMesh(20, 5);
         // x = 0 is on the left (sheet-1 = zinc = anode = region 0).
         for (int j = 0; j < 5; j++)
-            Assert.Equal(0, mesh.Regions[0, j]);
+            Assert.Equal(NodePhase.Anode, mesh.Regions[0, j]);
     }
 
     [Fact]
@@ -834,7 +834,7 @@ public class OverlapJointGeometryTests
         var mesh = CreateDefault().BuildMesh(20, 5);
         // Rightmost node is on sheet-2 side (cathode = region 1).
         for (int j = 0; j < 5; j++)
-            Assert.Equal(1, mesh.Regions[19, j]);
+            Assert.Equal(NodePhase.Cathode, mesh.Regions[19, j]);
     }
 
     [Fact]
@@ -913,7 +913,7 @@ public class IGeometryBuilderContractExtendedTests
         for (int i = 0; i < mesh.NodesX; i++)
             for (int j = 0; j < mesh.NodesY; j++)
                 Assert.True(
-                    mesh.Regions[i, j] is 0 or 1,
+                    mesh.Regions[i, j] is NodePhase.Anode or NodePhase.Cathode,
                     $"Unexpected region id {mesh.Regions[i, j]} at [{i},{j}].");
     }
 

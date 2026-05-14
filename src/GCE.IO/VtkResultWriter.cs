@@ -14,7 +14,7 @@ namespace GCE.IO;
 /// rectilinear grid whose node coordinates come from the mesh and whose point-data
 /// arrays carry:
 /// <list type="bullet">
-///   <item><description><c>RegionId</c> — the region identifier from <see cref="GeometryMesh.Regions"/> (0 = anode, 1 = cathode, −1 = electrolyte).</description></item>
+///   <item><description><c>RegionId</c> — the numeric value of <see cref="NodePhase"/> from <see cref="GeometryMesh.Regions"/> (0 = anode, 1 = cathode, −1 = electrolyte, 2 = corrosion product).</description></item>
 /// </list>
 /// Time-series field data (<c>Time_s</c>, <c>MixedPotential_V</c>,
 /// <c>CorrosionRate_mmPerYear</c>) is always written as VTK field-data arrays so
@@ -152,7 +152,7 @@ public sealed class VtkResultWriter : IResultWriter
             for (int i = 0; i < mesh.NodesX; i++)
             {
                 if (!first) writer.Write(' ');
-                writer.Write(mesh.Regions[i, j]);
+                writer.Write((int)mesh.Regions[i, j]);
                 first = false;
             }
         }

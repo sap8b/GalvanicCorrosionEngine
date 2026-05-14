@@ -638,10 +638,10 @@ public class SpatialDistributionTests
 
     private static GeometryMesh TinyMesh()
     {
-        var regions = new int[5, 5];
+        var regions = new NodePhase[5, 5];
         for (int i = 0; i < 5; i++)
             for (int j = 0; j < 5; j++)
-                regions[i, j] = i < 3 ? 0 : 1; // left = anode, right = cathode
+                regions[i, j] = i < 3 ? NodePhase.Anode : NodePhase.Cathode; // left = anode, right = cathode
         return new GeometryMesh(
             XCoordinates: [0.0, 0.025, 0.050, 0.075, 0.100],
             YCoordinates: [0.0, 0.025, 0.050, 0.075, 0.100],

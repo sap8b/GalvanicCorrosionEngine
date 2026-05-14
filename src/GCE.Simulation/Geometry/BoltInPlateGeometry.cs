@@ -139,8 +139,8 @@ public sealed class BoltInPlateGeometry : IGeometryBuilder
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesX, 2, nameof(nodesX));
         ArgumentOutOfRangeException.ThrowIfLessThan(nodesY, 2, nameof(nodesY));
 
-        int boltRegion = _boltIsAnode ? 0 : 1;
-        int plateRegion = _boltIsAnode ? 1 : 0;
+        NodePhase boltRegion = _boltIsAnode ? NodePhase.Anode : NodePhase.Cathode;
+        NodePhase plateRegion = _boltIsAnode ? NodePhase.Cathode : NodePhase.Anode;
 
         double half = PlateWidth / 2.0;
         double xStep = PlateWidth / (nodesX - 1);
@@ -154,7 +154,7 @@ public sealed class BoltInPlateGeometry : IGeometryBuilder
         for (int j = 0; j < nodesY; j++)
             ys[j] = -half + j * yStep;
 
-        var regions = new int[nodesX, nodesY];
+        var regions = new NodePhase[nodesX, nodesY];
         double r2 = BoltRadius * BoltRadius;
         for (int i = 0; i < nodesX; i++)
         {
