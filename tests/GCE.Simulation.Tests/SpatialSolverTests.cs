@@ -214,7 +214,7 @@ public class SpatialSolverTests
 
         Assert.NotNull(result.NodalPotentials);
 
-        const int ny = 5;
+        int ny = mesh.NodesY;
         double anodePotential = MaterialRegistry.Zinc.StandardPotential;
         double cathodePotential = MaterialRegistry.Copper.StandardPotential;
 

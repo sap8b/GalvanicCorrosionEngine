@@ -32,7 +32,7 @@ internal static class SpatialSolver
     private const double CorrosionProductConductivityRatio = 1.0e-2;
     private const double MinimumCorrosionProductConductivity = 1.0e-6;
     private const double SolverTolerance = 1e-8;
-    private const int SolverMaxIterations = 4000;
+    private const int SolverMaxIterations = 2000;
     private const double SOROmega = 1.5;
 
     /// <summary>
@@ -259,6 +259,9 @@ internal static class SpatialSolver
                         continue;
                     }
 
+                    // For outer-boundary nodes without fixed Dirichlet values, enforce
+                    // zero normal flux by mirroring the interior neighbor as the ghost
+                    // node value (∂phi/∂n = 0).
                     int westI = i > 0 ? i - 1 : (nx > 1 ? 1 : 0);
                     int eastI = i < nx - 1 ? i + 1 : (nx > 1 ? nx - 2 : 0);
                     int southJ = j > 0 ? j - 1 : (ny > 1 ? 1 : 0);
