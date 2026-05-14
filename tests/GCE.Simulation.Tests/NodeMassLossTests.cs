@@ -153,6 +153,27 @@ public class NodeMassLossTests
         Assert.Equal(result5.NodeMassLoss!.Length, result10.NodeMassLoss!.Length);
     }
 
+    [Fact]
+    public void Run_WithMesh_PopulatesSpatialSnapshotHistories()
+    {
+        var mesh = StandardMesh();
+        var result = Engine.Run(MeshParams(mesh, steps: 5));
+
+        Assert.NotNull(result.PhaseSnapshots);
+        Assert.NotNull(result.NodeMassLossSnapshots);
+        Assert.NotNull(result.RecessionDepthSnapshots);
+        Assert.NotNull(result.SurfaceProfileHistory);
+
+        Assert.Equal(result.TimePoints.Count, result.PhaseSnapshots!.Count);
+        Assert.Equal(result.TimePoints.Count, result.NodeMassLossSnapshots!.Count);
+        Assert.Equal(result.TimePoints.Count, result.RecessionDepthSnapshots!.Count);
+        Assert.Equal(result.TimePoints.Count, result.SurfaceProfileHistory!.Count);
+
+        Assert.All(result.NodeMassLossSnapshots!, s => Assert.Equal(mesh.NodesX * mesh.NodesY, s.Length));
+        Assert.All(result.RecessionDepthSnapshots!, s => Assert.Equal(mesh.NodesX * mesh.NodesY, s.Length));
+        Assert.All(result.SurfaceProfileHistory!, s => Assert.Equal(mesh.NodesX, s.Length));
+    }
+
     // ── Checkpoint / resume ────────────────────────────────────────────────────
 
     [Fact]
@@ -210,6 +231,67 @@ public class NodeMassLossTests
 
         Assert.True(resumedMassTotal >= checkpointMassTotal,
             $"Resumed total mass loss ({resumedMassTotal}) should be ≥ checkpoint total ({checkpointMassTotal}).");
+    }
+
+    [Fact]
+    public async Task Resume_AppliesCheckpointRegionsToResumeMesh()
+    {
+        var initialMesh = TinyAnodeMesh();
+        var parameters = new SimulationParameters(
+            new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+            new AtmosphericConditions(25.0, 0.75, 0.1),
+            DurationSeconds: 10.0,
+            TimeSteps: 10,
+            Mesh: initialMesh);
+
+        var cts = new CancellationTokenSource();
+        await Engine.RunAsync(
+            parameters,
+            new Progress<SimulationProgress>(p =>
+            {
+                if (p.CurrentStep >= 1) cts.Cancel();
+            }),
+            out SimulationState? checkpoint,
+            cts.Token);
+
+        await Task.Delay(50);
+        Assert.NotNull(checkpoint);
+        Assert.NotNull(checkpoint!.Regions);
+
+        bool checkpointContainsElectrolyte = false;
+        for (int i = 0; i < checkpoint.Regions!.GetLength(0); i++)
+        {
+            for (int j = 0; j < checkpoint.Regions.GetLength(1); j++)
+            {
+                if (checkpoint.Regions[i, j] == NodePhase.Electrolyte)
+                    checkpointContainsElectrolyte = true;
+            }
+        }
+        Assert.True(checkpointContainsElectrolyte, "Expected dissolved nodes in checkpoint regions.");
+
+        var resumeMesh = TinyAnodeMesh();
+        var resumed = await Engine.Resume(checkpoint, new SimulationParameters(
+            new GalvanicPair(MaterialRegistry.Zinc, MaterialRegistry.Copper),
+            new AtmosphericConditions(25.0, 0.75, 0.1),
+            DurationSeconds: 10.0,
+            TimeSteps: 10,
+            Mesh: resumeMesh));
+
+        bool resumeMeshContainsElectrolyte = false;
+        for (int i = 0; i < resumeMesh.NodesX; i++)
+        {
+            for (int j = 0; j < resumeMesh.NodesY; j++)
+            {
+                if (resumeMesh.Regions[i, j] == NodePhase.Electrolyte)
+                    resumeMeshContainsElectrolyte = true;
+            }
+        }
+
+        Assert.True(resumeMeshContainsElectrolyte, "Expected checkpoint regions to be applied before resume integration.");
+        Assert.NotNull(resumed.PhaseSnapshots);
+        Assert.NotNull(resumed.NodeMassLossSnapshots);
+        Assert.True(resumed.PhaseSnapshots!.Count >= checkpoint.PhaseSnapshots!.Count);
+        Assert.True(resumed.NodeMassLossSnapshots!.Count >= checkpoint.NodeMassLossSnapshots!.Count);
     }
 
     // ── Dissolution transition ─────────────────────────────────────────────────

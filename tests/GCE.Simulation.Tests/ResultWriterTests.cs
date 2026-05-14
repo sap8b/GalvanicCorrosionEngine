@@ -373,4 +373,48 @@ public class VtkResultWriterTests
         Assert.Contains("NodalPotential_V",          xml);
         Assert.Contains("NodalCorrosionRate_mmPerYear", xml);
     }
+
+    [Fact]
+    public void Write_WithSnapshotHistories_WritesPerTimestepSnapshotArrays()
+    {
+        var mesh = WriterFixtures.TinyMesh(); // 3×2 => 6 nodes
+        var phase0 = new NodePhase[3, 2]
+        {
+            { NodePhase.Anode, NodePhase.Anode },
+            { NodePhase.Electrolyte, NodePhase.Electrolyte },
+            { NodePhase.Cathode, NodePhase.Cathode },
+        };
+        var phase1 = new NodePhase[3, 2]
+        {
+            { NodePhase.Electrolyte, NodePhase.Anode },
+            { NodePhase.Electrolyte, NodePhase.Electrolyte },
+            { NodePhase.Cathode, NodePhase.Cathode },
+        };
+
+        var result = new SimulationResult
+        {
+            TimePoints = [0.0, 10.0],
+            MixedPotentials = [-0.42, -0.41],
+            CorrosionRates = [0.1, 0.12],
+            PhaseSnapshots = [phase0, phase1],
+            NodeMassLossSnapshots = [new[] { 0.0, 0.1, 0.0, 0.0, 0.0, 0.0 }, new[] { 0.2, 0.3, 0.0, 0.0, 0.0, 0.0 }],
+            RecessionDepthSnapshots = [new[] { 0.0, 1e-6, 0.0, 0.0, 0.0, 0.0 }, new[] { 2e-6, 3e-6, 0.0, 0.0, 0.0, 0.0 }],
+            SurfaceProfileHistory = [new[] { 1e-6, 0.0, 0.0 }, new[] { 3e-6, 0.0, 0.0 }],
+        };
+
+        var writer = new VtkResultWriter(mesh);
+        using var sw = new StringWriter();
+
+        writer.Write(result, sw);
+
+        string xml = sw.ToString();
+        Assert.Contains("RegionId_t0000", xml);
+        Assert.Contains("RegionId_t0001", xml);
+        Assert.Contains("NodeMassLoss_kgPerDepth_t0000", xml);
+        Assert.Contains("NodeMassLoss_kgPerDepth_t0001", xml);
+        Assert.Contains("RecessionDepth_m_t0000", xml);
+        Assert.Contains("RecessionDepth_m_t0001", xml);
+        Assert.Contains("SurfaceRecessionDepth_m_t0000", xml);
+        Assert.Contains("SurfaceRecessionDepth_m_t0001", xml);
+    }
 }

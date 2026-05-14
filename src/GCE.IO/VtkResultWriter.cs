@@ -15,6 +15,7 @@ namespace GCE.IO;
 /// arrays carry:
 /// <list type="bullet">
 ///   <item><description><c>RegionId</c> — the numeric value of <see cref="NodePhase"/> from <see cref="GeometryMesh.Regions"/> (0 = anode, 1 = cathode, −1 = electrolyte, 2 = corrosion product).</description></item>
+///   <item><description>Optional per-timestep snapshot arrays when present in <see cref="SimulationResult"/>: phase maps, cumulative mass-loss maps, and recession-depth maps.</description></item>
 /// </list>
 /// Time-series field data (<c>Time_s</c>, <c>MixedPotential_V</c>,
 /// <c>CorrosionRate_mmPerYear</c>) is always written as VTK field-data arrays so
@@ -72,6 +73,17 @@ public sealed class VtkResultWriter : IResultWriter
         WriteDataArray(writer, "Time_s",                  result.TimePoints,      indent: 6);
         WriteDataArray(writer, "MixedPotential_V",        result.MixedPotentials, indent: 6);
         WriteDataArray(writer, "CorrosionRate_mmPerYear", result.CorrosionRates,  indent: 6);
+        if (result.SurfaceProfileHistory is { Count: > 0 })
+        {
+            for (int i = 0; i < result.SurfaceProfileHistory.Count; i++)
+            {
+                WriteDataArray(
+                    writer,
+                    $"SurfaceRecessionDepth_m_t{i:D4}",
+                    result.SurfaceProfileHistory[i],
+                    indent: 6);
+            }
+        }
         writer.WriteLine("    </FieldData>");
 
         // ── Piece ─────────────────────────────────────────────────────────────
@@ -93,6 +105,9 @@ public sealed class VtkResultWriter : IResultWriter
                 WriteDataArray(writer, "NodalPotential_V",           result.NodalPotentials,     indent: 8);
             if (result.NodalCorrosionRates is { Length: > 0 })
                 WriteDataArray(writer, "NodalCorrosionRate_mmPerYear", result.NodalCorrosionRates, indent: 8);
+            WritePhaseSnapshotArrays(writer, result, _mesh, indent: 8);
+            WriteSnapshotArraySeries(writer, "NodeMassLoss_kgPerDepth", result.NodeMassLossSnapshots, _mesh, indent: 8);
+            WriteSnapshotArraySeries(writer, "RecessionDepth_m", result.RecessionDepthSnapshots, _mesh, indent: 8);
             writer.WriteLine("      </PointData>");
         }
 
@@ -136,6 +151,71 @@ public sealed class VtkResultWriter : IResultWriter
         int indent)
     {
         WriteDataArray(writer, name, (IReadOnlyList<double>)values, indent);
+    }
+
+    private static void WriteIntDataArray(
+        TextWriter writer,
+        string name,
+        IReadOnlyList<int> values,
+        int indent)
+    {
+        string pad = new(' ', indent);
+        writer.WriteLine(
+            $"{pad}<DataArray type=\"Int32\" Name=\"{name}\" NumberOfTuples=\"{values.Count}\" format=\"ascii\">");
+        writer.Write(new string(' ', indent + 2));
+        for (int i = 0; i < values.Count; i++)
+        {
+            if (i > 0) writer.Write(' ');
+            writer.Write(values[i].ToString(CultureInfo.InvariantCulture));
+        }
+        writer.WriteLine();
+        writer.WriteLine($"{pad}</DataArray>");
+    }
+
+    private static void WriteSnapshotArraySeries(
+        TextWriter writer,
+        string baseName,
+        IReadOnlyList<double[]>? snapshots,
+        GeometryMesh mesh,
+        int indent)
+    {
+        if (snapshots is null || snapshots.Count == 0)
+            return;
+
+        int nodeCount = mesh.NodesX * mesh.NodesY;
+        for (int i = 0; i < snapshots.Count; i++)
+        {
+            var values = snapshots[i];
+            if (values.Length != nodeCount)
+                continue;
+            WriteDataArray(writer, $"{baseName}_t{i:D4}", values, indent);
+        }
+    }
+
+    private static void WritePhaseSnapshotArrays(
+        TextWriter writer,
+        SimulationResult result,
+        GeometryMesh mesh,
+        int indent)
+    {
+        if (result.PhaseSnapshots is null || result.PhaseSnapshots.Count == 0)
+            return;
+
+        for (int s = 0; s < result.PhaseSnapshots.Count; s++)
+        {
+            NodePhase[,] snapshot = result.PhaseSnapshots[s];
+            if (snapshot.GetLength(0) != mesh.NodesX || snapshot.GetLength(1) != mesh.NodesY)
+                continue;
+
+            var flattened = new int[mesh.NodesX * mesh.NodesY];
+            int idx = 0;
+            for (int j = 0; j < mesh.NodesY; j++)
+            {
+                for (int i = 0; i < mesh.NodesX; i++)
+                    flattened[idx++] = (int)snapshot[i, j];
+            }
+            WriteIntDataArray(writer, $"RegionId_t{s:D4}", flattened, indent);
+        }
     }
 
     private static void WriteRegionArray(TextWriter writer, GeometryMesh mesh, int indent)
