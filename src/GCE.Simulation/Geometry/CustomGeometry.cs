@@ -119,6 +119,10 @@ public sealed class CustomGeometry : IGeometryBuilder
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// When no custom mesh is supplied, this overload partitions the provided x-range
+    /// at its midpoint (x_min + x_max)/2: left side = anode, right side = cathode.
+    /// </remarks>
     public GeometryMesh BuildMesh(double[] xCoordinates, double[] yCoordinates)
     {
         if (_customMesh is not null)
@@ -126,8 +130,8 @@ public sealed class CustomGeometry : IGeometryBuilder
 
         ArgumentNullException.ThrowIfNull(xCoordinates);
         ArgumentNullException.ThrowIfNull(yCoordinates);
-        ValidateCoordinates(xCoordinates, nameof(xCoordinates));
-        ValidateCoordinates(yCoordinates, nameof(yCoordinates));
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(xCoordinates, nameof(xCoordinates));
+        GeometryCoordinateValidation.ValidateStrictlyIncreasing(yCoordinates, nameof(yCoordinates));
 
         var xs = (double[])xCoordinates.Clone();
         var ys = (double[])yCoordinates.Clone();
@@ -142,17 +146,5 @@ public sealed class CustomGeometry : IGeometryBuilder
         }
 
         return new GeometryMesh(xs, ys, regions);
-    }
-
-    private static void ValidateCoordinates(double[] coordinates, string paramName)
-    {
-        if (coordinates.Length < 2)
-            throw new ArgumentException("Coordinate array must contain at least two points.", paramName);
-
-        for (int i = 1; i < coordinates.Length; i++)
-        {
-            if (coordinates[i] <= coordinates[i - 1])
-                throw new ArgumentException("Coordinate array must be strictly increasing.", paramName);
-        }
     }
 }
